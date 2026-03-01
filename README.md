@@ -1,4 +1,4 @@
-# Claude Code Sandbox Kit
+# Claude Code Sandbox
 
 A portable, hardened Docker sandbox for running Claude Code agents with defense-in-depth security controls. Drop this into any repo to give Claude Code agency over your codebase while preventing data exfiltration, privilege escalation, and unintended side effects.
 
@@ -18,10 +18,10 @@ The sandbox enforces four layers of defense:
 
 ```bash
 # 1. Copy this directory into your project
-cp -r sandbox-kit/ /path/to/your-project/infra/sandbox-kit/
+cp -r claude-code-sandbox/ /path/to/your-project/infra/claude-code-sandbox/
 
 # 2. Customize (see sections below), then build
-cd /path/to/your-project/infra/sandbox-kit/
+cd /path/to/your-project/infra/claude-code-sandbox/
 docker compose build
 
 # 3. Run the security tests
@@ -36,7 +36,7 @@ docker compose run claude-dev claude -p "fix the failing test" --max-turns 20
 
 ## Permission Profiles
 
-The kit ships with two permission profiles in `settings-profiles/`:
+The sandbox ships with two permission profiles in `settings-profiles/`:
 
 | Profile | File | Description |
 |---------|------|-------------|
