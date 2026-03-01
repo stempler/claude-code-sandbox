@@ -1,0 +1,35 @@
+name: Sandbox Security Tests
+
+on:
+  push:
+    paths:
+      - 'Dockerfile'
+      - 'init-firewall.sh'
+      - 'lock-settings.sh'
+      - 'entrypoint.sh'
+      - 'claude-settings.json'
+      - 'docker-compose.yml'
+      - 'test-sandbox.sh'
+      - '.github/workflows/test-sandbox.yml'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'init-firewall.sh'
+      - 'lock-settings.sh'
+      - 'entrypoint.sh'
+      - 'claude-settings.json'
+      - 'docker-compose.yml'
+      - 'test-sandbox.sh'
+      - '.github/workflows/test-sandbox.yml'
+
+jobs:
+  security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run sandbox security tests
+        run: bash test-sandbox.sh

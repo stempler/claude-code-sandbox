@@ -1,0 +1,10 @@
+# Enforce LF line endings for all text files.
+# Shell scripts inside Docker containers will break with CRLF.
+* text=auto eol=lf
+
+# Explicitly mark binary files
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.tar.gz binary

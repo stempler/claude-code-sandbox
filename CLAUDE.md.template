@@ -1,0 +1,40 @@
+# CLAUDE.md — Workspace instructions for the sandboxed agent
+
+# Project Overview
+# Describe your project so the agent has context.
+# Example:
+#   This is a Python web application using FastAPI and PostgreSQL.
+
+# Code Structure
+# Describe your source layout so the agent knows where things live.
+# Example:
+#   src/api/       — FastAPI route handlers
+#   src/models/    — SQLAlchemy models
+#   src/services/  — Business logic
+#   tests/         — pytest test suite
+
+# Development Workflow
+# Tell the agent how to run, test, and lint your code.
+# Example:
+#   - Run tests: pytest
+#   - Lint: ruff check src/
+#   - Format: black src/
+
+# Conventions
+# Any project-specific patterns the agent should follow.
+# Example:
+#   - Use type hints on all public functions
+#   - Keep functions under 50 lines
+#   - Write a test for every new function
+
+# Sandbox Constraints
+# These are enforced by the container — the agent cannot change them.
+# Reminding it here reduces wasted attempts.
+You are running inside a sandboxed Docker container. The following restrictions apply:
+- You cannot access the internet (except the Anthropic API)
+- You cannot install packages (pip install, npm install are blocked)
+- You cannot push to git remotes
+- You cannot use curl, wget, ssh, or any network tools
+- You cannot modify your own permission settings
+- You cannot use sudo
+- All dependencies are pre-installed in the container image

@@ -1,0 +1,9 @@
+[user]
+    name = Claude Code (sandbox)
+    email = claude-sandbox@localhost
+[init]
+    defaultBranch = main
+[core]
+    autocrlf = input
+[safe]
+    directory = /workspace
