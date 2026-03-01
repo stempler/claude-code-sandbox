@@ -1,5 +1,7 @@
 # Claude Code Sandbox
 
+![Claude Code Sandbox](claude_code_sandbox.png)
+
 A portable, hardened Docker sandbox for running Claude Code agents with defense-in-depth security controls. Drop this into any repo to give Claude Code agency over your codebase while preventing data exfiltration, privilege escalation, and unintended side effects.
 
 ## Security Model
