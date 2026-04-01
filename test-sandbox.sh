@@ -242,6 +242,9 @@ else
 fi
 
 # ── Firewall: proxy allows an allowlisted domain ──────────────────────────
+# Proxy allow test: any HTTP response from pypi.org proves the CONNECT tunnel was established.
+# 000 = TCP connection to proxy failed; 503 = proxy could not reach upstream.
+# Any other code (200, 301, 400, etc.) means Squid forwarded the request successfully.
 HTTP_CODE=$(curl --proxy http://localhost:3128 -s -o /dev/null -w "%{http_code}" \
     --max-time 10 https://pypi.org 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "503" ]; then
@@ -260,12 +263,12 @@ else
 fi
 
 # ── Firewall: Anthropic API reachable via proxy ───────────────────────────
-HTTP_CODE=$(curl --proxy http://localhost:3128 -s -o /dev/null -w "%{http_code}" \
-    --max-time 10 https://api.anthropic.com 2>/dev/null || echo "000")
+# Test as devuser: verifies the proxy ACL allows api.anthropic.com, not just the root iptables bypass
+HTTP_CODE=$(gosu devuser bash -c "curl --proxy http://localhost:3128 -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://api.anthropic.com 2>/dev/null || echo 000")
 if [ "$HTTP_CODE" != "000" ]; then
     echo "TEST_FW_ALLOW_ANTHROPIC=PASS"
 else
-    echo "TEST_FW_ALLOW_ANTHROPIC=FAIL (could not reach api.anthropic.com via proxy)"
+    echo "TEST_FW_ALLOW_ANTHROPIC=FAIL (could not reach api.anthropic.com via proxy as devuser)"
 fi
 
 # ── Privilege escalation: devuser cannot run sudo ────────────────────────
