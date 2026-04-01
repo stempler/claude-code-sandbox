@@ -29,6 +29,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 WORKSPACE_DIR="$(pwd)"
 SKIP_BUILD=false
+ENTRYPOINT_OVERRIDE=""
 
 # ── Parse flags ─────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -37,13 +38,17 @@ while [[ $# -gt 0 ]]; do
             SKIP_BUILD=true
             shift
             ;;
+        --entrypoint)
+            ENTRYPOINT_OVERRIDE="$2"
+            shift 2
+            ;;
         --)
             shift
             break
             ;;
         -*)
             echo "Unknown option: $1" >&2
-            echo "Usage: claude-sandbox [--no-build] [-- <command> [args...]]" >&2
+            echo "Usage: claude-sandbox [--no-build] [--entrypoint <cmd>] [-- <command> [args...]]" >&2
             exit 1
             ;;
         *)
@@ -78,8 +83,13 @@ DOCKER_ARGS=(
     --cpus 2.0
 )
 
-# Attach TTY flags only when running interactively
-if [ -t 0 ]; then
+if [ -n "$ENTRYPOINT_OVERRIDE" ]; then
+    DOCKER_ARGS+=(--entrypoint "$ENTRYPOINT_OVERRIDE")
+fi
+
+# Attach TTY flags only when both stdin and stdout are a terminal.
+# Checking stdout prevents stalling when output is captured (e.g. $(...)).
+if [ -t 0 ] && [ -t 1 ]; then
     DOCKER_ARGS+=(-it)
 fi
 

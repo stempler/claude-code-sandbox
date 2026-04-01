@@ -20,6 +20,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SANDBOX="$SCRIPT_DIR/bin/claude-sandbox"
 cd "$SCRIPT_DIR"
 
 PASS=0
@@ -54,7 +55,7 @@ echo ""
 # ── Step 1: Build the image ──────────────────────────────────────────────────
 echo "[test] Building sandbox image (first build may take a few minutes)..."
 echo ""
-if docker compose build claude-dev; then
+if "$SANDBOX" --entrypoint true -- true; then
     echo ""
     pass "Image builds successfully"
 else
@@ -68,8 +69,7 @@ echo ""
 echo "[test] Running security checks inside container..."
 echo ""
 
-TEST_OUTPUT=$(docker compose run --rm --entrypoint bash \
-    claude-dev -c '
+TEST_OUTPUT=$("$SANDBOX" --no-build --entrypoint bash -- -c '
 set -uo pipefail
 
 echo "=== BEGIN TESTS ==="
@@ -314,7 +314,7 @@ if [ $FAIL -gt 0 ]; then
     echo "    - Init script failures often indicate missing kernel modules"
     echo "      (iptables needs iptable_filter) or Docker capability issues."
     echo "    - On Docker Desktop (Windows/macOS), try:"
-    echo "        docker compose run --rm --privileged --entrypoint bash claude-dev"
+    echo "        bin/claude-sandbox --entrypoint bash"
     echo "    - To see raw container output, run with VERBOSE=1:"
     echo "        VERBOSE=1 bash test-sandbox.sh"
     if [ -n "${VERBOSE:-}" ]; then
