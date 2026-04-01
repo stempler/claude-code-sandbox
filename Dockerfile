@@ -22,11 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Node.js 20 (required by Claude Code) ────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
 # ── mise-en-place ────────────────────────────────────────────────────────────
 RUN install -dm 755 /etc/apt/keyrings \
     && curl -fSs https://mise.jdx.dev/gpg-key.pub \
@@ -37,8 +32,8 @@ RUN install -dm 755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Claude Code CLI ─────────────────────────────────────────────────────────
-RUN --mount=type=cache,target=/root/.npm \
-    npm install -g @anthropic-ai/claude-code --loglevel info --foreground-scripts
+# RUN curl -fsSL https://claude.ai/install.sh | bash \
+#     && cp /root/.local/bin/claude /usr/local/bin/claude
 
 # ── Non-root user with limited sudo ─────────────────────────────────────────
 RUN useradd -m -s /bin/bash devuser \
@@ -73,7 +68,7 @@ RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
 USER devuser
 WORKDIR /workspace
 
-ENV PATH="/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"
+ENV PATH="/home/devuser/.local/bin:/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"
 ENV VIRTUAL_ENV="/home/devuser/venv"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

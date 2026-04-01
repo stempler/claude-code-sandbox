@@ -29,6 +29,10 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     echo ""
 fi
 
+# ── Update Claude Code to latest version ───────────────────────────────────
+echo "[entrypoint] Updating Claude Code..."
+curl -fsSL https://claude.ai/install.sh | bash 2>&1 || echo "[entrypoint] Update failed, using image version"
+
 # ── Lock down agent permissions ────────────────────────────────────────────
 echo "[entrypoint] Locking agent permissions..."
 sudo /usr/local/bin/lock-settings.sh
