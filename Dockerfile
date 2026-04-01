@@ -10,7 +10,7 @@
 #           no host credentials, scoped sudo
 ###############################################################################
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -27,6 +27,15 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# ── mise-en-place ────────────────────────────────────────────────────────────
+RUN install -dm 755 /etc/apt/keyrings \
+    && curl -fSs https://mise.jdx.dev/gpg-key.pub \
+       > /etc/apt/keyrings/mise-archive-keyring.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.asc] https://mise.jdx.dev/deb stable main" \
+       > /etc/apt/sources.list.d/mise.list \
+    && apt-get update && apt-get install -y mise \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── Claude Code CLI ─────────────────────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g @anthropic-ai/claude-code --loglevel info --foreground-scripts
@@ -37,7 +46,8 @@ RUN useradd -m -s /bin/bash devuser \
        >> /etc/sudoers.d/devuser \
     && echo "devuser ALL=(root) NOPASSWD: /usr/local/bin/lock-settings.sh" \
        >> /etc/sudoers.d/devuser \
-    && chmod 0440 /etc/sudoers.d/devuser
+    && chmod 0440 /etc/sudoers.d/devuser \
+    && echo 'eval "$(mise activate bash)"' >> /home/devuser/.bashrc
 
 # ── Project dependencies (CUSTOMIZE THIS) ───────────────────────────────────
 # Example: Python venv with your project's packages
@@ -63,7 +73,7 @@ RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
 USER devuser
 WORKDIR /workspace
 
-ENV PATH="/home/devuser/venv/bin:$PATH"
+ENV PATH="/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"
 ENV VIRTUAL_ENV="/home/devuser/venv"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
