@@ -73,6 +73,8 @@ DOCKER_ARGS=(
     -v "${WORKSPACE_DIR}:/workspace"
     -v "${CLAUDE_STATE_VOLUME}:/home/devuser"
     # -v "${PROJECT_DIR}/gitconfig-sandbox:/home/devuser/.gitconfig:ro"
+    -e HOST_UID="$(id -u)"
+    -e HOST_GID="$(id -g)"
     -e GIT_AUTHOR_NAME="Claude Code (sandbox)"
     -e GIT_AUTHOR_EMAIL="claude-sandbox@localhost"
     -e GIT_COMMITTER_NAME="Claude Code (sandbox)"

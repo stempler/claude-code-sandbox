@@ -12,7 +12,7 @@ The sandbox enforces four layers of defense:
 
 2. **Egress firewall** — `iptables` default-deny policy blocks all outbound traffic except the Anthropic API and Docker-embedded DNS. Even if the agent bypasses permission rules (e.g. via `python -c "import requests"`), it cannot exfiltrate data.
 
-3. **Non-root user with scoped sudo** — The agent runs as `devuser` with sudo access limited to exactly two scripts: `lock-settings.sh` and `init-firewall.sh`. No other privileged commands are available.
+3. **Non-root agent with privilege-drop entrypoint** — The container entrypoint runs as root to remap `devuser`'s UID/GID to match the host user (so workspace files stay host-owned), then drops to `devuser` via `gosu` before launching Claude Code. `devuser` has no `sudo` access whatsoever.
 
 4. **Container isolation** — No Docker socket, no SSH keys, no host credentials mounted. Resource limits (`pids_limit`, `mem_limit`, `cpus`) prevent fork bombs and resource exhaustion.
 
@@ -22,18 +22,20 @@ The sandbox enforces four layers of defense:
 # 1. Copy this directory into your project
 cp -r claude-code-sandbox/ /path/to/your-project/infra/claude-code-sandbox/
 
-# 2. Customize (see sections below), then build
-cd /path/to/your-project/infra/claude-code-sandbox/
-docker compose build
+# 2. Customize (see sections below), then run from your project root
+cd /path/to/your-project
+/path/to/infra/claude-code-sandbox/bin/claude-sandbox
 
 # 3. Run the security tests
+cd /path/to/your-project/infra/claude-code-sandbox/
 bash test-sandbox.sh
 
 # 4. Authenticate (first time only — stored in Docker volume)
-docker compose run claude-dev claude login
+bin/claude-sandbox -- claude login
 
-# 5. Use it
-docker compose run claude-dev claude -p "fix the failing test" --max-turns 20
+# 5. Use it (from any directory — mounts cwd as /workspace)
+cd /path/to/your-project
+bin/claude-sandbox -- claude -p "fix the failing test" --max-turns 20
 ```
 
 ## Permission Profiles
@@ -54,18 +56,16 @@ docker compose build   # rebuild to bake in new settings
 
 ## What to Customize
 
-### 1. Source Code Mount (`docker-compose.yml`)
+### 1. Source Code Mount
 
-The default mounts `../src:/workspace`. Change this to point at your source code:
+`bin/claude-sandbox` mounts the **current working directory** as `/workspace` automatically — just run it from your project root. No configuration needed.
 
-```yaml
-volumes:
-  - ../src:/workspace          # <- adjust this path
-  - claude-state:/home/devuser/.claude
-  - ./gitconfig-sandbox:/home/devuser/.gitconfig:ro
+```bash
+cd /path/to/your-project
+claude-sandbox -- claude -p "your task"
 ```
 
-Only mount the code the agent needs. Never mount `.env`, `.git/config`, `~/.ssh`, `~/.aws`, or the Docker socket.
+The sandbox also creates a `claude-state-home` Docker volume for persisting Claude credentials and state across sessions. Never mount `.env`, `.git/config`, `~/.ssh`, `~/.aws`, or the Docker socket.
 
 ### 2. Project Dependencies (`Dockerfile`)
 
@@ -112,24 +112,24 @@ Adjust the allow/deny lists for your project structure:
 - **Allow list** — Add commands the agent needs (e.g., `Bash(cargo test *)`, `Bash(go build *)`)
 - **Deny list** — The defaults cover most exfiltration and escape vectors. Review and add project-specific denials if needed.
 
-### 5. Git Identity (`docker-compose.yml`)
+### 5. Git Identity (`bin/claude-sandbox`)
 
-The default Git identity is `Claude Code (sandbox) <claude-sandbox@localhost>`. Change the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` environment variables if needed.
+The default Git identity is `Claude Code (sandbox) <claude-sandbox@localhost>`. Edit the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` env vars in `bin/claude-sandbox` if needed.
 
 ## File Reference
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | Image definition — system packages, Node.js, Claude Code CLI, non-root user |
-| `docker-compose.yml` | Service configuration — volumes, capabilities, resource limits |
-| `claude-settings.json` | Active permission rules (default: strict profile) |
+| `Dockerfile` | Image definition — system packages, `gosu`, Claude Code CLI, `devuser` account |
+| `bin/claude-sandbox` | Launcher — builds image, mounts cwd as `/workspace`, passes host UID/GID |
+| `config/` | Config tree mirroring `~devuser/` — baked into image and locked at startup |
+| `config/.claude/settings.json` | Active permission rules and hooks |
 | `settings-profiles/` | Strict and permissive permission profiles |
 | `init-firewall.sh` | Egress firewall — runs as root at startup, writes verification to `/run/firewall-verify` |
-| `lock-settings.sh` | Settings lock — copies canonical settings, sets root ownership + read-only |
-| `entrypoint.sh` | Container startup orchestrator — runs lock + firewall, initializes git |
-| `gitconfig-sandbox` | Minimal git config for the sandbox user |
+| `lock-settings.sh` | Settings lock — copies canonical config tree, sets root ownership + read-only |
+| `entrypoint.sh` | Container startup — remaps devuser UID/GID, locks settings, starts firewall, drops to devuser |
 | `CLAUDE.md.template` | Workspace instructions template — copy to your source root as `CLAUDE.md` |
-| `test-sandbox.sh` | Security smoke tests (28 checks) — run after any changes |
+| `test-sandbox.sh` | Security smoke tests — run after any changes |
 | `.gitattributes` | Enforces LF line endings (prevents CRLF issues on Windows) |
 | `.github/workflows/` | CI workflow that runs security tests on push/PR |
 
@@ -164,21 +164,23 @@ This sandbox hardens the execution environment. It does **not** address:
 
 ## Known Caveats
 
-- **DNS-based firewall**: The firewall resolves hostnames at container startup. If the Anthropic API's IP changes during a long session, the agent may lose connectivity. Restart the container to refresh.
+- **DNS-based firewall**: Most domains in the firewall allowlist are resolved by `dig` at container startup. If an IP changes during a long session, those connections may lose connectivity. Restart the container to refresh. The Anthropic API itself uses a stable published CIDR (`160.79.104.0/23`) and is not affected.
 - **`Bash(python *)` in permissive profile**: The permissive profile allows arbitrary Python execution, which can bypass most deny rules. The firewall is the backstop. The default strict profile blocks this — only switch to permissive if you need it.
 - **Docker Desktop (Windows/macOS)**: Requires the `iptable_filter` kernel module. If firewall tests fail, ensure your Docker Desktop is up to date. The `--privileged` flag can be used for debugging but should not be used in production.
 - **CRLF line endings**: The included `.gitattributes` enforces LF endings, but if you copy files outside of git, ensure they use LF. Shell scripts with CRLF will fail inside the Linux container.
+- **UID/GID remap on existing volumes**: If you have an existing `claude-state-home` volume from before the UID remap feature was added (when devuser had UID 1000), files in that volume may be owned by the old UID. The entrypoint runs `chown -R devuser /home/devuser` to reconcile this, but on large volumes this may add a few seconds to startup. To reset cleanly: `docker volume rm claude-state-home`.
+- **UID collision in the image**: If another account in the image already uses `HOST_UID` (common when the base image creates a default user at 1000), the entrypoint moves that account to a spare UID first, then assigns `HOST_UID` to `devuser` so bind-mount ownership still matches your host user.
 
 ## Authentication
 
-The sandbox uses Claude subscription auth (Pro/Max plan), not API keys. Credentials are stored in the `claude-state` Docker volume and persist across container restarts.
+The sandbox uses Claude subscription auth (Pro/Max plan), not API keys. Credentials are stored in the `claude-state-home` Docker volume and persist across container restarts.
 
 ```bash
 # First-time login
-docker compose run claude-dev claude login
+bin/claude-sandbox -- claude login
 
 # Credentials persist in the volume — no need to re-login
-docker compose run claude-dev claude -p "your task here"
+bin/claude-sandbox -- claude -p "your task here"
 ```
 
 Do **not** set `ANTHROPIC_API_KEY` in the environment — it would bypass subscription auth and bill against your API account.

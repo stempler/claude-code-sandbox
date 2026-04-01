@@ -6,8 +6,8 @@
 # repo's language/framework, then adjust claude-settings.json for your
 # permission rules.
 #
-# Security: non-root user, iptables egress firewall, locked settings,
-#           no host credentials, scoped sudo
+# Security: non-root agent (gosu drop), iptables egress firewall, locked settings,
+#           no host credentials, host UID/GID remap for workspace ownership
 ###############################################################################
 
 FROM ubuntu:26.04
@@ -16,7 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ── System packages ─────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git ca-certificates gnupg sudo \
+    curl git ca-certificates gnupg gosu \
     iptables iproute2 dnsutils \
     python3 python3-pip python3-venv \
     build-essential \
@@ -35,13 +35,9 @@ RUN install -dm 755 /etc/apt/keyrings \
 # RUN curl -fsSL https://claude.ai/install.sh | bash \
 #     && cp /root/.local/bin/claude /usr/local/bin/claude
 
-# ── Non-root user with limited sudo ─────────────────────────────────────────
+# ── Non-root user ───────────────────────────────────────────────────────────
+# No sudo needed: entrypoint runs as root and drops to devuser via gosu.
 RUN useradd -m -s /bin/bash devuser \
-    && echo "devuser ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" \
-       >> /etc/sudoers.d/devuser \
-    && echo "devuser ALL=(root) NOPASSWD: /usr/local/bin/lock-settings.sh" \
-       >> /etc/sudoers.d/devuser \
-    && chmod 0440 /etc/sudoers.d/devuser \
     && echo 'eval "$(mise activate bash)"' >> /home/devuser/.bashrc
 
 # ── Project dependencies (CUSTOMIZE THIS) ───────────────────────────────────
@@ -64,8 +60,9 @@ COPY config/ /usr/local/share/sandbox-config/
 RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
     && chown -R devuser:devuser /home/devuser
 
-# ── Switch to non-root ──────────────────────────────────────────────────────
-USER devuser
+# ── Entrypoint runs as root so it can remap devuser UID/GID to match the ────
+# host user, then drops privileges via gosu before handing off to CMD.
+USER root
 WORKDIR /workspace
 
 ENV PATH="/home/devuser/.local/bin:/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"

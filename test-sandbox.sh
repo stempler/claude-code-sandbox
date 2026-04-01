@@ -70,19 +70,65 @@ echo "[test] Running security checks inside container..."
 echo ""
 
 TEST_OUTPUT=$("$SANDBOX" --no-build --entrypoint bash -- -c '
-set -uo pipefail
+set -euo pipefail
 
 echo "=== BEGIN TESTS ==="
 
+# ── Root phase: remap devuser to host UID/GID ────────────────────────────
+# Mirrors entrypoint.sh (including UID collision handling) so tests match runtime.
+if echo "${HOST_UID:-}" | grep -qE "^[0-9]+$" && echo "${HOST_GID:-}" | grep -qE "^[0-9]+$"; then
+    CURRENT_UID=$(id -u devuser)
+    CURRENT_GID=$(id -g devuser)
+    if [ "$HOST_GID" != "$CURRENT_GID" ]; then
+        EXISTING_GROUP=$(getent group "$HOST_GID" | cut -d: -f1 || true)
+        if [ -n "$EXISTING_GROUP" ]; then
+            usermod -g "$HOST_GID" devuser
+        else
+            groupmod -g "$HOST_GID" devuser
+        fi
+    fi
+    if [ "$HOST_UID" != "$CURRENT_UID" ]; then
+        uid_owner=$(getent passwd "$HOST_UID" | cut -d: -f1 || true)
+        if [ -n "$uid_owner" ] && [ "$uid_owner" != "devuser" ]; then
+            echo "[test-remap] UID $HOST_UID is in use by $uid_owner; relocating to a spare UID"
+            temp_uid=99990
+            while getent passwd "$temp_uid" >/dev/null; do
+                temp_uid=$((temp_uid + 1))
+            done
+            other_home=$(getent passwd "$uid_owner" | cut -d: -f6)
+            usermod -u "$temp_uid" "$uid_owner"
+            if [ -n "$other_home" ] && [ -d "$other_home" ]; then
+                chown -R "$uid_owner:" "$other_home" 2>/dev/null || true
+            fi
+        fi
+        usermod -u "$HOST_UID" devuser
+    fi
+    chown -R devuser /home/devuser 2>/dev/null || true
+fi
+
+# ── UID/GID remap verification ───────────────────────────────────────────
+DEVUSER_UID=$(id -u devuser)
+DEVUSER_GID=$(id -g devuser)
+if [[ "${HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${HOST_GID:-}" =~ ^[0-9]+$ ]]; then
+    if [ "$DEVUSER_UID" = "$HOST_UID" ] && [ "$DEVUSER_GID" = "$HOST_GID" ]; then
+        echo "TEST_UID_GID_REMAP=PASS"
+    else
+        echo "TEST_UID_GID_REMAP=FAIL (devuser=$DEVUSER_UID:$DEVUSER_GID, expected HOST=$HOST_UID:$HOST_GID)"
+    fi
+else
+    echo "TEST_UID_GID_REMAP=SKIP (HOST_UID/HOST_GID not passed or non-numeric)"
+fi
+
 # ── Initialize security controls ─────────────────────────────────────────
-LOCK_OUTPUT=$(sudo /usr/local/bin/lock-settings.sh 2>&1) ; LOCK_RC=$?
+# Entrypoint runs as root and calls these directly; test mirrors that.
+LOCK_OUTPUT=$(/usr/local/bin/lock-settings.sh 2>&1) ; LOCK_RC=$?
 if [ $LOCK_RC -eq 0 ]; then
     echo "TEST_INIT_LOCK_SETTINGS=PASS"
 else
     echo "TEST_INIT_LOCK_SETTINGS=FAIL (exit code $LOCK_RC: $LOCK_OUTPUT)"
 fi
 
-FW_OUTPUT=$(sudo /usr/local/bin/init-firewall.sh 2>&1) ; FW_RC=$?
+FW_OUTPUT=$(/usr/local/bin/init-firewall.sh 2>&1) ; FW_RC=$?
 if [ $FW_RC -eq 0 ]; then
     echo "TEST_INIT_FIREWALL=PASS"
 else
@@ -105,15 +151,15 @@ else
     echo "TEST_SETTINGS_PERMS=FAIL (perms=$PERMS)"
 fi
 
-# ── Settings: cannot append ──────────────────────────────────────────────
-if echo "tampered" >> /home/devuser/.claude/settings.json 2>/dev/null; then
+# ── Settings: devuser cannot append ──────────────────────────────────────
+if gosu devuser bash -c "echo tampered >> /home/devuser/.claude/settings.json" 2>/dev/null; then
     echo "TEST_SETTINGS_WRITE=FAIL (write succeeded!)"
 else
     echo "TEST_SETTINGS_WRITE=PASS"
 fi
 
-# ── Settings: cannot overwrite via cp ────────────────────────────────────
-if cp /dev/null /home/devuser/.claude/settings.json 2>/dev/null; then
+# ── Settings: devuser cannot overwrite via cp ────────────────────────────
+if gosu devuser bash -c "cp /dev/null /home/devuser/.claude/settings.json" 2>/dev/null; then
     echo "TEST_SETTINGS_CP=FAIL (cp succeeded!)"
 else
     echo "TEST_SETTINGS_CP=PASS"
@@ -137,9 +183,8 @@ else
     echo "TEST_SETTINGS_LOCAL_LOCKED=FAIL (owner=$LOCAL_OWNER, perms=$LOCAL_PERMS)"
 fi
 
-# ── Settings: cannot overwrite local override ────────────────────────────
-if echo "{\"permissions\":{\"allow\":[\"Bash(*)\"]}}" \
-    > /home/devuser/.claude/settings.local.json 2>/dev/null; then
+# ── Settings: devuser cannot overwrite local override ────────────────────
+if gosu devuser bash -c "echo {} > /home/devuser/.claude/settings.local.json" 2>/dev/null; then
     echo "TEST_SETTINGS_LOCAL_WRITE=FAIL (overwrote settings.local.json!)"
 else
     echo "TEST_SETTINGS_LOCAL_WRITE=PASS"
@@ -197,17 +242,16 @@ else
     echo "TEST_FW_ALLOW_ANTHROPIC=SKIP (could not resolve api.anthropic.com)"
 fi
 
-# ── Sudo: arbitrary commands blocked ─────────────────────────────────────
-if sudo ls /root 2>/dev/null; then
+# ── Privilege escalation: devuser cannot run sudo ────────────────────────
+if gosu devuser bash -c "sudo ls /root" 2>/dev/null; then
     echo "TEST_SUDO_RESTRICTED=FAIL (sudo ls /root succeeded!)"
 else
     echo "TEST_SUDO_RESTRICTED=PASS"
 fi
 
-# ── Sudo: cannot chmod settings ──────────────────────────────────────────
-if sudo chmod 0666 /home/devuser/.claude/settings.json 2>/dev/null; then
+# ── Privilege escalation: devuser cannot sudo chmod settings ─────────────
+if gosu devuser bash -c "sudo chmod 0666 /home/devuser/.claude/settings.json" 2>/dev/null; then
     echo "TEST_SUDO_CHMOD=FAIL (sudo chmod succeeded!)"
-    sudo chmod 0444 /home/devuser/.claude/settings.json 2>/dev/null
 else
     echo "TEST_SUDO_CHMOD=PASS"
 fi
@@ -233,43 +277,43 @@ else
     echo "TEST_NO_SSH_KEYS=PASS"
 fi
 
-# ── /etc/shadow protected ────────────────────────────────────────────────
-if cat /etc/shadow 2>/dev/null | head -1 | grep -q ":"; then
-    echo "TEST_SHADOW_PROTECTED=FAIL (could read /etc/shadow!)"
+# ── /etc/shadow protected from devuser ───────────────────────────────────
+if gosu devuser bash -c "cat /etc/shadow" 2>/dev/null | head -1 | grep -q ":"; then
+    echo "TEST_SHADOW_PROTECTED=FAIL (devuser could read /etc/shadow!)"
 else
     echo "TEST_SHADOW_PROTECTED=PASS"
 fi
 
-# ── /proc/1/environ not leaking secrets ──────────────────────────────────
-if cat /proc/1/environ 2>/dev/null | tr "\0" "\n" | grep -qi "password\|secret\|key"; then
+# ── /proc/1/environ not leaking secrets to devuser ───────────────────────
+if gosu devuser bash -c "cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep -qi 'password\|secret\|key'"; then
     echo "TEST_PROC_ENV_PROTECTED=FAIL (found secrets in /proc/1/environ!)"
 else
     echo "TEST_PROC_ENV_PROTECTED=PASS"
 fi
 
-# ── Python cannot bypass sudo deny ──────────────────────────────────────
-if python3 -c "import subprocess; subprocess.run([\"sudo\", \"ls\", \"/root\"], check=True)" 2>/dev/null; then
+# ── Python cannot bypass privilege restrictions ──────────────────────────
+if gosu devuser python3 -c "import subprocess; subprocess.run([\"sudo\", \"ls\", \"/root\"], check=True)" 2>/dev/null; then
     echo "TEST_PYTHON_SUDO_BYPASS=FAIL (python sudo bypass succeeded!)"
 else
     echo "TEST_PYTHON_SUDO_BYPASS=PASS"
 fi
 
-# ── Canonical settings is read-only ─────────────────────────────────────
-if echo "tampered" >> /usr/local/share/sandbox-config/.claude/settings.json 2>/dev/null; then
+# ── Canonical settings is read-only for devuser ──────────────────────────
+if gosu devuser bash -c "echo tampered >> /usr/local/share/sandbox-config/.claude/settings.json" 2>/dev/null; then
     echo "TEST_CANONICAL_SETTINGS_RO=FAIL (wrote to canonical settings!)"
 else
     echo "TEST_CANONICAL_SETTINGS_RO=PASS"
 fi
 
-# ── Cannot modify sudoers ───────────────────────────────────────────────
-if echo "devuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/devuser 2>/dev/null; then
-    echo "TEST_SUDOERS_PROTECTED=FAIL (modified sudoers!)"
+# ── System files protected from devuser ──────────────────────────────────
+if gosu devuser bash -c "touch /etc/evil-file" 2>/dev/null; then
+    echo "TEST_SYSTEM_FILES_PROTECTED=FAIL (devuser could write to /etc!)"
 else
-    echo "TEST_SUDOERS_PROTECTED=PASS"
+    echo "TEST_SYSTEM_FILES_PROTECTED=PASS"
 fi
 
-# ── Cannot overwrite init scripts ───────────────────────────────────────
-if cp /dev/null /usr/local/bin/lock-settings.sh 2>/dev/null; then
+# ── Cannot overwrite init scripts ────────────────────────────────────────
+if gosu devuser bash -c "cp /dev/null /usr/local/bin/lock-settings.sh" 2>/dev/null; then
     echo "TEST_INIT_SCRIPTS_RO=FAIL (overwrote lock-settings.sh!)"
 else
     echo "TEST_INIT_SCRIPTS_RO=PASS"

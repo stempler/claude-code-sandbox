@@ -2,7 +2,7 @@
 ###############################################################################
 # lock-settings.sh — Restore and lock all files from the config/ tree
 #
-# Runs as root (via sudo) at container startup, BEFORE Claude Code launches.
+# Runs as root at container startup, BEFORE Claude Code launches.
 # Recursively copies the canonical config tree from the image into the
 # writable home directory and makes every file root-owned + read-only so the
 # agent cannot tamper with its own permission rules or other config files.
