@@ -185,7 +185,8 @@ else
 fi
 
 # ── Firewall: Anthropic API reachable ────────────────────────────────────
-ANTHROPIC_IP=$(dig +short api.anthropic.com A 2>/dev/null | head -1)
+# Use +noall +answer A to get only real A records (no CNAME lines from +short)
+ANTHROPIC_IP=$(dig +noall +answer A api.anthropic.com | awk "/[[:space:]]A[[:space:]]/{print \$5}" | head -1)
 if [ -n "$ANTHROPIC_IP" ]; then
     if timeout 5 bash -c "echo > /dev/tcp/$ANTHROPIC_IP/443" 2>/dev/null; then
         echo "TEST_FW_ALLOW_ANTHROPIC=PASS"

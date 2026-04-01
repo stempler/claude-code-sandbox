@@ -41,6 +41,17 @@ sudo /usr/local/bin/lock-settings.sh
 echo "[entrypoint] Setting up egress firewall..."
 sudo /usr/local/bin/init-firewall.sh
 
+# ── Verify API connectivity ────────────────────────────────────────────────
+# Any HTTP response (even 4xx) means TCP+TLS succeeded and the host is reachable.
+# HTTP code 000 means the connection itself failed (firewall, DNS, etc.).
+echo "[entrypoint] Verifying API connectivity..."
+HTTP_CODE=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" https://api.anthropic.com || true)
+if [ "$HTTP_CODE" != "000" ] && [ -n "$HTTP_CODE" ]; then
+    echo "[entrypoint] API reachable (HTTP $HTTP_CODE)."
+else
+    echo "[entrypoint] WARNING: Cannot reach api.anthropic.com -- Claude may not respond."
+fi
+
 # ── Initialize isolated git repo in workspace ──────────────────────────────
 cd /workspace
 if [ ! -d .git ]; then

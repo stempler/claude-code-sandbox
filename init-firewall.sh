@@ -54,66 +54,70 @@ iptables -A OUTPUT -p udp -j DROP
 # Allowlisted destinations (CUSTOMIZE THIS)
 ###############################################################################
 
-# ── Anthropic API (required for Claude Code) ────────────────────────────────
-ANTHROPIC_IPS=$(dig +short api.anthropic.com A 2>/dev/null || echo "")
-if [ -n "$ANTHROPIC_IPS" ]; then
-    for ip in $ANTHROPIC_IPS; do
-        iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-        echo "[firewall]   Allowed: api.anthropic.com -> $ip:443"
-    done
-else
-    # Fail closed: do NOT allow all :443 — better to fail than to allow exfiltration
-    echo "[firewall]   ERROR: Could not resolve api.anthropic.com"
-    echo "[firewall]   Claude Code will not be able to connect. Check DNS and retry."
-fi
+# Helper: resolve a domain and allow all its A record IPs on port 443
+resolve_and_allow() {
+    local domain="$1"
+    local ips
+    ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
+    if [ -n "$ips" ]; then
+        for ip in $ips; do
+            iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+            echo "[firewall]   Allowed: $domain -> $ip:443"
+        done
+    else
+        echo "[firewall]   WARNING: Could not resolve $domain"
+    fi
+}
 
-# ── Claude subscription auth (OAuth endpoints) ─────────────────────────────
-CLAUDE_IPS=$(dig +short claude.ai A 2>/dev/null || echo "")
-if [ -n "$CLAUDE_IPS" ]; then
-    for ip in $CLAUDE_IPS; do
-        iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-        echo "[firewall]   Allowed: claude.ai -> $ip:443"
-    done
-fi
+# ── Anthropic API (static CIDR — docs.anthropic.com/en/api/ip-addresses) ────
+# Using official published CIDR ranges avoids DNS/CDN IP rotation issues.
+iptables -A OUTPUT -d 160.79.104.0/23 -p tcp --dport 443 -j ACCEPT
+echo "[firewall]   Allowed: Anthropic API CIDR 160.79.104.0/23:443"
+
+# ── Claude Code required domains ────────────────────────────────────────────
+# claude.ai          — subscription auth
+# platform.claude.com — console/API key auth
+# downloads.claude.ai — update installer, version manifests
+# statsig.anthropic.com — feature flags (blocks Claude startup if unreachable)
+ALLOWED_DOMAINS=(claude.ai platform.claude.com downloads.claude.ai statsig.anthropic.com api.github.com release-assets.githubusercontent.com)
+for domain in "${ALLOWED_DOMAINS[@]}"; do
+    resolve_and_allow "$domain"
+done
 
 # ── PyPI (uncomment if agent needs to pip install) ──────────────────────────
 # for domain in pypi.org files.pythonhosted.org; do
-#     IPS=$(dig +short "$domain" A 2>/dev/null || echo "")
-#     if [ -n "$IPS" ]; then
-#         for ip in $IPS; do
-#             iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-#             echo "[firewall]   Allowed: $domain -> $ip:443"
-#         done
-#     fi
+#     resolve_and_allow "$domain"
 # done
 
 # ── npm registry (uncomment if agent needs npm install) ─────────────────────
-# NPM_IPS=$(dig +short registry.npmjs.org A 2>/dev/null || echo "")
-# if [ -n "$NPM_IPS" ]; then
-#     for ip in $NPM_IPS; do
-#         iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-#         echo "[firewall]   Allowed: registry.npmjs.org -> $ip:443"
-#     done
-# fi
+# resolve_and_allow "registry.npmjs.org"
+
+# ── GitHub
+for domain in github.com; do
+    IPS=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
+    for ip in $IPS; do
+        iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+        iptables -A OUTPUT -d "$ip" -p tcp --dport 22  -j ACCEPT
+    done
+done
+
+# ── Sentry error reporting (uncomment if desired) ───────────────────────────
+# resolve_and_allow "sentry.io"
+
+# ── Legacy Claude update downloads (uncomment if needed) ────────────────────
+# resolve_and_allow "storage.googleapis.com"
 
 # ── Internal services (Docker network, example) ────────────────────────────
 # iptables -A OUTPUT -d 172.16.0.0/12 -p tcp --dport 8080 -j ACCEPT
 
-# ── GitHub (uncomment if agent needs git push) ──────────────────────────────
-# for domain in github.com; do
-#     IPS=$(dig +short "$domain" A 2>/dev/null || echo "")
-#     for ip in $IPS; do
-#         iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-#         iptables -A OUTPUT -d "$ip" -p tcp --dport 22  -j ACCEPT
-#     done
-# done
-
 ###############################################################################
 
-# ── Log and drop everything else ────────────────────────────────────────────
+# ── Reject everything else immediately (avoids hanging timeouts) ─────────────
+# REJECT gives an immediate ICMP error rather than silently timing out, which
+# makes it obvious when a connection is blocked and prevents Claude from hanging.
 iptables -A OUTPUT -m limit --limit 5/min -j LOG \
     --log-prefix "[FIREWALL-BLOCKED] " --log-level 4
-iptables -A OUTPUT -j DROP
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
 
 # ── Self-verify and write results for test consumption ────────────────────
 # The test runs as devuser and cannot sudo iptables directly (sudoers only
@@ -145,7 +149,8 @@ fi
 chmod 0444 "$VERIFY_FILE"
 
 if [ "$VERIFY_OK" = true ]; then
-    echo "[firewall] Active. DEFAULT DENY. Allowed: loopback, Docker DNS, Anthropic API, claude.ai"
+    DOMAIN_LIST=$(IFS=", "; echo "${ALLOWED_DOMAINS[*]}")
+    echo "[firewall] Active. DEFAULT DENY. Allowed: loopback, Docker DNS, GitHub, Anthropic API (CIDR), ${DOMAIN_LIST}"
 else
     echo "[firewall] WARNING: Rules were applied but verification found issues."
 fi
