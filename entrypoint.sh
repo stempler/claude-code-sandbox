@@ -91,6 +91,16 @@ echo "[entrypoint] Locking agent permissions..."
 echo "[entrypoint] Setting up egress firewall..."
 /usr/local/bin/init-firewall.sh
 
+# Export proxy env vars so gosu-launched devuser inherits them.
+# Both lower and upper case are needed — different tools check different cases.
+# no_proxy excludes localhost to prevent a proxy loop (devuser → :3128 → :3128).
+export http_proxy=http://localhost:3128
+export https_proxy=http://localhost:3128
+export HTTP_PROXY=http://localhost:3128
+export HTTPS_PROXY=http://localhost:3128
+export no_proxy=localhost,127.0.0.1
+export NO_PROXY=localhost,127.0.0.1
+
 # ── Verify API connectivity ────────────────────────────────────────────────
 # Any HTTP response (even 4xx) means TCP+TLS succeeded and the host is reachable.
 # HTTP code 000 means the connection itself failed (firewall, DNS, etc.).

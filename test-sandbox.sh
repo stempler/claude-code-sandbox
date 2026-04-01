@@ -215,31 +215,60 @@ else
     echo "TEST_FW_UDP_DROP=FAIL (no verification file)"
 fi
 
-# ── Firewall: blocked external host ──────────────────────────────────────
-if timeout 3 bash -c "echo > /dev/tcp/1.1.1.1/443" 2>/dev/null; then
-    echo "TEST_FW_BLOCK_EXTERNAL=FAIL (connected to 1.1.1.1:443!)"
-else
-    echo "TEST_FW_BLOCK_EXTERNAL=PASS"
-fi
-
-# ── Firewall: blocked DNS ────────────────────────────────────────────────
-if timeout 3 bash -c "echo > /dev/tcp/8.8.8.8/53" 2>/dev/null; then
-    echo "TEST_FW_BLOCK_DNS=FAIL (connected to 8.8.8.8:53!)"
-else
-    echo "TEST_FW_BLOCK_DNS=PASS"
-fi
-
-# ── Firewall: Anthropic API reachable ────────────────────────────────────
-# Use +noall +answer A to get only real A records (no CNAME lines from +short)
-ANTHROPIC_IP=$(dig +noall +answer A api.anthropic.com | awk "/[[:space:]]A[[:space:]]/{print \$5}" | head -1)
-if [ -n "$ANTHROPIC_IP" ]; then
-    if timeout 5 bash -c "echo > /dev/tcp/$ANTHROPIC_IP/443" 2>/dev/null; then
-        echo "TEST_FW_ALLOW_ANTHROPIC=PASS"
+# ── Firewall: Squid proxy is running ─────────────────────────────────────
+if [ -f "$FW_VERIFY" ]; then
+    SQUID_RUNNING=$(grep "^SQUID_RUNNING=" "$FW_VERIFY" | cut -d= -f2)
+    if [ "$SQUID_RUNNING" = "yes" ]; then
+        echo "TEST_FW_SQUID_RUNNING=PASS"
     else
-        echo "TEST_FW_ALLOW_ANTHROPIC=FAIL (could not connect to $ANTHROPIC_IP:443)"
+        echo "TEST_FW_SQUID_RUNNING=FAIL (Squid not running after firewall init)"
     fi
 else
-    echo "TEST_FW_ALLOW_ANTHROPIC=SKIP (could not resolve api.anthropic.com)"
+    echo "TEST_FW_SQUID_RUNNING=FAIL (no verification file)"
+fi
+
+# ── Firewall: devuser cannot bypass proxy with direct TCP ─────────────────
+if timeout 3 gosu devuser bash -c "echo > /dev/tcp/1.1.1.1/443" 2>/dev/null; then
+    echo "TEST_FW_BLOCK_DIRECT_BYPASS=FAIL (devuser connected to 1.1.1.1:443 directly!)"
+else
+    echo "TEST_FW_BLOCK_DIRECT_BYPASS=PASS"
+fi
+
+# ── Firewall: devuser cannot reach external DNS directly ──────────────────
+if timeout 3 gosu devuser bash -c "echo > /dev/tcp/8.8.8.8/53" 2>/dev/null; then
+    echo "TEST_FW_BLOCK_DNS_BYPASS=FAIL (devuser connected to 8.8.8.8:53!)"
+else
+    echo "TEST_FW_BLOCK_DNS_BYPASS=PASS"
+fi
+
+# ── Firewall: proxy allows an allowlisted domain ──────────────────────────
+# Proxy allow test: any HTTP response from pypi.org proves the CONNECT tunnel was established.
+# 000 = TCP connection to proxy failed; 503 = proxy could not reach upstream.
+# Any other code (200, 301, 400, etc.) means Squid forwarded the request successfully.
+HTTP_CODE=$(curl --proxy http://localhost:3128 -s -o /dev/null -w "%{http_code}" \
+    --max-time 10 https://pypi.org 2>/dev/null || echo "000")
+if [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "503" ]; then
+    echo "TEST_FW_PROXY_ALLOW=PASS"
+else
+    echo "TEST_FW_PROXY_ALLOW=FAIL (HTTP $HTTP_CODE reaching pypi.org via proxy)"
+fi
+
+# ── Firewall: proxy blocks a non-allowlisted domain ──────────────────────
+HTTP_CODE=$(curl --proxy http://localhost:3128 -s -o /dev/null -w "%{http_code}" \
+    --max-time 5 https://pastebin.com 2>/dev/null || echo "000")
+if [ "$HTTP_CODE" = "403" ]; then
+    echo "TEST_FW_PROXY_DENY=PASS"
+else
+    echo "TEST_FW_PROXY_DENY=FAIL (HTTP $HTTP_CODE for pastebin.com, expected 403)"
+fi
+
+# ── Firewall: Anthropic API reachable via proxy ───────────────────────────
+# Test as devuser: verifies the proxy ACL allows api.anthropic.com, not just the root iptables bypass
+HTTP_CODE=$(gosu devuser bash -c "curl --proxy http://localhost:3128 -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://api.anthropic.com 2>/dev/null || echo 000")
+if [ "$HTTP_CODE" != "000" ]; then
+    echo "TEST_FW_ALLOW_ANTHROPIC=PASS"
+else
+    echo "TEST_FW_ALLOW_ANTHROPIC=FAIL (could not reach api.anthropic.com via proxy as devuser)"
 fi
 
 # ── Privilege escalation: devuser cannot run sudo ────────────────────────
@@ -254,13 +283,6 @@ if gosu devuser bash -c "sudo chmod 0666 /home/devuser/.claude/settings.json" 2>
     echo "TEST_SUDO_CHMOD=FAIL (sudo chmod succeeded!)"
 else
     echo "TEST_SUDO_CHMOD=PASS"
-fi
-
-# ── Network tools: curl blocked ──────────────────────────────────────────
-if curl --max-time 3 https://example.com 2>/dev/null; then
-    echo "TEST_CURL_BLOCKED=FAIL (curl succeeded!)"
-else
-    echo "TEST_CURL_BLOCKED=PASS"
 fi
 
 # ── Docker socket not mounted ────────────────────────────────────────────
