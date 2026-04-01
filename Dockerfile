@@ -53,12 +53,11 @@ COPY lock-settings.sh /usr/local/bin/lock-settings.sh
 COPY entrypoint.sh    /usr/local/bin/entrypoint.sh
 RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh
 
-# Settings: copy to user dir AND to a root-owned canonical location
-# that the entrypoint restores on every boot (tamper recovery).
-COPY claude-settings.json /home/devuser/.claude/settings.json
-COPY claude-settings.json /usr/local/share/claude-settings.json
-RUN chmod 0444 /usr/local/share/claude-settings.json \
-    && chown -R devuser:devuser /home/devuser/.claude
+# Config: copy the config/ tree (mirrors home dir) to the user home AND to a
+# root-owned canonical location that the entrypoint restores on every boot.
+COPY config/ /usr/local/share/sandbox-config/
+RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
+    && chown -R devuser:devuser /home/devuser
 
 # ── Switch to non-root ──────────────────────────────────────────────────────
 USER devuser

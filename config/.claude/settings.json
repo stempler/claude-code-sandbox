@@ -1,16 +1,20 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_note": "This is the STRICT profile. See settings-profiles/ for alternatives. To switch: cp settings-profiles/permissive.json claude-settings.json",
+  "_profile": "permissive",
+  "_description": "Broad Python/shell access for data science, ML, and exploratory work. The agent can run arbitrary Python — the egress firewall is the primary defense against exfiltration. Use this when the agent needs to run notebooks, scripts, or data pipelines.",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
       "Read(*)",
       "Glob(*)",
       "Grep(*)",
-      "Edit(src/**)",
-      "Write(src/**)",
+      "Bash(hk *)",
+      "Bash(mise *)",
+      "Edit(/workspace/**)",
+      "Write(/workspace/**)",
+      "Bash(python *)",
+      "Bash(python3 *)",
       "Bash(pytest *)",
-      "Bash(pytest)",
       "Bash(pip list*)",
       "Bash(pip show *)",
       "Bash(git status*)",
@@ -40,16 +44,7 @@
       "Edit(docker-compose*)",
       "Edit(Dockerfile*)",
       "Edit(.env*)",
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(python -c *)",
-      "Bash(python3 -c *)",
-      "Bash(node *)",
-      "Bash(node -e *)",
-      "Bash(bash -c *)",
-      "Bash(sh -c *)",
       "Bash(rm -rf *)",
-      "Bash(rm -r *)",
       "Bash(sudo *)",
       "Bash(curl *)",
       "Bash(wget *)",
@@ -76,9 +71,32 @@
       "Edit(/home/devuser/.claude/*)",
       "Write(/home/devuser/.claude/*)",
       "Bash(pip install *)",
-      "Bash(pip *)",
-      "Bash(npm *)",
+      "Bash(npm install *)",
+      "Bash(npm exec *)",
       "Bash(npx *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "hk fix"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mise install"
+          }
+        ]
+      }
     ]
   }
 }

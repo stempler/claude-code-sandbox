@@ -120,7 +120,7 @@ else
 fi
 
 # ── Settings: content matches canonical ──────────────────────────────────
-if diff -q /usr/local/share/claude-settings.json /home/devuser/.claude/settings.json > /dev/null 2>&1; then
+if diff -q /usr/local/share/sandbox-config/.claude/settings.json /home/devuser/.claude/settings.json > /dev/null 2>&1; then
     echo "TEST_SETTINGS_CONTENT=PASS"
 else
     echo "TEST_SETTINGS_CONTENT=FAIL (content differs from canonical)"
@@ -254,7 +254,7 @@ else
 fi
 
 # ── Canonical settings is read-only ─────────────────────────────────────
-if echo "tampered" >> /usr/local/share/claude-settings.json 2>/dev/null; then
+if echo "tampered" >> /usr/local/share/sandbox-config/.claude/settings.json 2>/dev/null; then
     echo "TEST_CANONICAL_SETTINGS_RO=FAIL (wrote to canonical settings!)"
 else
     echo "TEST_CANONICAL_SETTINGS_RO=PASS"
