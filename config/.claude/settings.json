@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "hk fix"
+            "command": "[ -f hk.pkl ] && hk fix || true"
           }
         ]
       }
