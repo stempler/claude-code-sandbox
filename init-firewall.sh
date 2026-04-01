@@ -73,13 +73,12 @@ SQUID_CONF=/etc/squid/squid.conf
 
 # Build the domain list from env vars or defaults
 if [ -n "${ALLOWED_DOMAINS:-}" ]; then
-    # shellcheck disable=SC2206
-    DOMAIN_LIST=($ALLOWED_DOMAINS)
+    read -ra DOMAIN_LIST <<< "$ALLOWED_DOMAINS"
 else
     DOMAIN_LIST=("${DEFAULT_DOMAINS[@]}")
     if [ -n "${EXTRA_ALLOWED_DOMAINS:-}" ]; then
-        # shellcheck disable=SC2206
-        DOMAIN_LIST+=($EXTRA_ALLOWED_DOMAINS)
+        read -ra EXTRA <<< "$EXTRA_ALLOWED_DOMAINS"
+        DOMAIN_LIST+=("${EXTRA[@]}")
     fi
 fi
 
@@ -240,6 +239,7 @@ if [ "$VERIFY_OK" = true ]; then
         echo "[firewall]   Domain filtering: ${#DOMAIN_LIST[@]} entries"
     fi
 else
-    echo "[firewall] WARNING: Rules were applied but verification found issues."
+    echo "[firewall] ERROR: Verification failed. Firewall rules are incorrect."
+    exit 1
 fi
 echo ""
