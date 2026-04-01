@@ -93,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mise install"
+            "command": "mise trust -a && mise install"
           }
         ]
       }
