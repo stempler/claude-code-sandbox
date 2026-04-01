@@ -38,9 +38,14 @@ iptables -A INPUT  -i lo -j ACCEPT
 # Established connections
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-# Docker embedded DNS
-iptables -A OUTPUT -d 127.0.0.11 -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -d 127.0.0.11 -p tcp --dport 53 -j ACCEPT
+# DNS: allow all nameservers from /etc/resolv.conf (covers both Docker embedded
+# DNS at 127.0.0.11 on compose networks and host DNS on the default bridge)
+DNS_SERVERS=$(grep -oP '^\s*nameserver\s+\K\S+' /etc/resolv.conf || true)
+for dns in $DNS_SERVERS; do
+    iptables -A OUTPUT -d "$dns" -p udp --dport 53 -j ACCEPT
+    iptables -A OUTPUT -d "$dns" -p tcp --dport 53 -j ACCEPT
+    echo "[firewall]   Allowed DNS: $dns"
+done
 
 # Drop all other UDP — prevents DNS tunneling to external resolvers
 iptables -A OUTPUT -p udp -j DROP
