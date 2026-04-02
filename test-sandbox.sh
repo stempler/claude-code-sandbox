@@ -254,8 +254,11 @@ else
 fi
 
 # ── Firewall: proxy blocks a non-allowlisted domain ──────────────────────
-HTTP_CODE=$(curl --proxy http://localhost:3128 -s -o /dev/null -w "%{http_code}" \
-    --max-time 5 https://pastebin.com 2>/dev/null || echo "000")
+# Use http:// (not https://) so Squid processes the full request and returns 403 directly.
+# With https://, Squid blocks the CONNECT tunnel before any HTTP exchange, so %{http_code}
+# reports 000 even on a successful block.
+HTTP_CODE=$(gosu devuser bash -c "curl --proxy http://localhost:3128 -s -o /dev/null -w \"%{http_code}\" \
+    --max-time 5 http://pastebin.com 2>/dev/null || echo 000")
 if [ "$HTTP_CODE" = "403" ]; then
     echo "TEST_FW_PROXY_DENY=PASS"
 else
@@ -293,8 +296,12 @@ else
 fi
 
 # ── No SSH keys ──────────────────────────────────────────────────────────
-if [ -d /root/.ssh ] || [ -d /home/devuser/.ssh/id_* ] 2>/dev/null; then
-    echo "TEST_NO_SSH_KEYS=FAIL (SSH key directory accessible!)"
+SSH_KEYS_FOUND=false
+for f in /root/.ssh/id_* /home/devuser/.ssh/id_*; do
+    if [ -e "$f" ]; then SSH_KEYS_FOUND=true; break; fi
+done
+if [ "$SSH_KEYS_FOUND" = true ]; then
+    echo "TEST_NO_SSH_KEYS=FAIL (SSH key files found!)"
 else
     echo "TEST_NO_SSH_KEYS=PASS"
 fi
