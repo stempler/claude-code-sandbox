@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     squid \
     python3 python3-pip python3-venv \
     build-essential \
+    ncurses-term \
     && rm -rf /var/lib/apt/lists/*
 
 # ── mise-en-place ────────────────────────────────────────────────────────────
