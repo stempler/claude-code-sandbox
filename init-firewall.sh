@@ -63,6 +63,9 @@ DEFAULT_DOMAINS=(
     # Common CDNs
     .cloudflare.com
     .fastly.net
+    # Json schema
+    .json-schema.org
+    .schemastore.org
 )
 
 ###############################################################################
