@@ -121,6 +121,10 @@ fi
 ###############################################################################
 
 echo "[firewall] Starting Squid..."
+# Pre-create the log file owned by proxy (Squid's user) but world-readable,
+# so non-root users can read it via proxy-log without breaking Squid's write access.
+chmod o+rx /var/log/squid/
+install -m 0644 -o proxy -g proxy /dev/null /var/log/squid/access.log
 squid -f "$SQUID_CONF"
 
 # Wait for Squid to accept connections (poll /dev/tcp, up to 10 seconds)

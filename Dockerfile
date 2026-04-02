@@ -54,7 +54,8 @@ RUN python3 -m venv /home/devuser/venv \
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY lock-settings.sh /usr/local/bin/lock-settings.sh
 COPY entrypoint.sh    /usr/local/bin/entrypoint.sh
-RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh
+COPY proxy-log.sh     /usr/local/bin/proxy-log
+RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log
 
 # Config: copy the config/ tree (mirrors home dir) to the user home AND to a
 # root-owned canonical location that the entrypoint restores on every boot.
