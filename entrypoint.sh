@@ -6,7 +6,7 @@
 #   1. Remap devuser UID/GID to match the host user (fixes bind-mount ownership)
 #   2. Lock agent permissions (settings.json + settings.local.json)
 #   3. Initialize egress firewall
-#   4. Initialize isolated git repo in /workspace
+#   4. Warn if /workspace has no git repository
 #   5. Drop privileges and hand off to CMD via gosu
 ###############################################################################
 
@@ -112,15 +112,15 @@ else
     echo "[entrypoint] WARNING: Cannot reach api.anthropic.com -- Claude may not respond."
 fi
 
-# ── Initialize isolated git repo in workspace ──────────────────────────────
+# ── Check for git repo in workspace ──────────────────────────────────────────
 cd /workspace
 if [ ! -d .git ]; then
-    gosu devuser git init --quiet
-    gosu devuser git add -A
-    gosu devuser git commit -m "Initial state" --quiet
-    echo "[entrypoint] Initialized isolated git repo in /workspace"
+    echo ""
+    echo "  WARNING: /workspace is not a git repository."
+    echo "  Claude Code works best with version control. Consider running 'git init'."
+    echo ""
 else
-    echo "[entrypoint] Git repo already exists in /workspace"
+    echo "[entrypoint] Git repo found in /workspace"
 fi
 
 # ── Drop privileges and hand off ───────────────────────────────────────────

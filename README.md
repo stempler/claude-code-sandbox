@@ -114,7 +114,7 @@ Adjust the allow/deny lists for your project structure:
 
 ### 5. Git Identity (`bin/claude-sandbox`)
 
-The default Git identity is `Claude Code (sandbox) <claude-sandbox@localhost>`. Edit the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` env vars in `bin/claude-sandbox` if needed.
+The Git identity is automatically read from the host system's `git config user.name` and `git config user.email`. If these are not set, it falls back to `Claude Code (sandbox) <claude-sandbox@localhost>`. To override, set `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` before running `bin/claude-sandbox`.
 
 ## File Reference
 
