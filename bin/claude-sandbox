@@ -31,6 +31,9 @@ WORKSPACE_DIR="$(pwd)"
 SKIP_BUILD=false
 ENTRYPOINT_OVERRIDE=""
 
+# Deterministic container name based on workspace path (allows reuse detection)
+CONTAINER_NAME="claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)"
+
 # ── Parse flags ─────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,9 +73,25 @@ fi
 GIT_USER_NAME="$(git config user.name 2>/dev/null || echo "Claude Code (sandbox)")"
 GIT_USER_EMAIL="$(git config user.email 2>/dev/null || echo "claude-sandbox@localhost")"
 
+# ── Reuse running container for this workspace ───────────────────────────────
+# If no entrypoint override is requested and a container is already running for
+# this workspace, exec into it as devuser instead of starting a new one.
+if [ -z "$ENTRYPOINT_OVERRIDE" ] && \
+   docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
+    echo "[claude-sandbox] Attaching to running container for: $WORKSPACE_DIR"
+    EXEC_ARGS=(-it --user devuser -w /workspace)
+    EXEC_ARGS+=(-e TERM="${TERM:-xterm-256color}")
+    EXEC_ARGS+=(-e GIT_AUTHOR_NAME="$GIT_USER_NAME")
+    EXEC_ARGS+=(-e GIT_AUTHOR_EMAIL="$GIT_USER_EMAIL")
+    EXEC_ARGS+=(-e GIT_COMMITTER_NAME="$GIT_USER_NAME")
+    EXEC_ARGS+=(-e GIT_COMMITTER_EMAIL="$GIT_USER_EMAIL")
+    exec docker exec "${EXEC_ARGS[@]}" "$CONTAINER_NAME" "${CMD[@]}"
+fi
+
 # ── Assemble docker run args ─────────────────────────────────────────────────
 DOCKER_ARGS=(
     --rm
+    --name "$CONTAINER_NAME"
     --cap-add NET_ADMIN
     -v "${WORKSPACE_DIR}:/workspace"
     -v "${CLAUDE_STATE_VOLUME}:/home/devuser"
