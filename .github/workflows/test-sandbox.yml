@@ -9,6 +9,7 @@ on:
       - 'entrypoint.sh'
       - 'claude-settings.json'
       - 'docker-compose.yml'
+      - 'bin/code-sandbox'
       - 'test-sandbox.sh'
       - '.github/workflows/test-sandbox.yml'
   pull_request:
@@ -19,6 +20,7 @@ on:
       - 'entrypoint.sh'
       - 'claude-settings.json'
       - 'docker-compose.yml'
+      - 'bin/code-sandbox'
       - 'test-sandbox.sh'
       - '.github/workflows/test-sandbox.yml'
 
