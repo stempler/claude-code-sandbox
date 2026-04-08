@@ -68,7 +68,7 @@ RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
 USER root
 WORKDIR /workspace
 
-ENV PATH="/home/devuser/.local/bin:/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"
+ENV PATH="/home/devuser/.opencode/bin:/home/devuser/.local/bin:/home/devuser/.local/share/mise/shims:/home/devuser/venv/bin:$PATH"
 ENV VIRTUAL_ENV="/home/devuser/venv"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
