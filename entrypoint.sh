@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ── Remap devuser to host UID/GID ──────────────────────────────────────────
-# HOST_UID / HOST_GID are passed by bin/claude-sandbox so files written to
+# HOST_UID / HOST_GID are passed by bin/code-sandbox so files written to
 # the bind-mounted /workspace are owned by the calling host user, not by the
 # container's default devuser ID.
 if [[ "${HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${HOST_GID:-}" =~ ^[0-9]+$ ]]; then

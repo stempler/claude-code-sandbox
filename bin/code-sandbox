@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 ###############################################################################
-# bin/claude-sandbox — Run Claude Code in the sandbox container
+# bin/code-sandbox — Run Claude Code / OpenCode in the sandbox container
 #
 # Usage:
-#   claude-sandbox [--no-build] [-- <command> [args...]]
+#   code-sandbox [--no-build] [-- <command> [args...]]
 #
 # Options:
 #   --no-build   Skip rebuilding the Docker image before running
 #
 # Examples:
-#   claude-sandbox                              # interactive bash shell
-#   claude-sandbox -- claude -p "fix the bug" --max-turns 30
-#   claude-sandbox --no-build -- bash           # skip rebuild, run immediately
+#   code-sandbox                              # interactive bash shell
+#   code-sandbox -- claude -p "fix the bug" --max-turns 30
+#   code-sandbox --no-build -- bash           # skip rebuild, run immediately
 #
 # The current working directory is mounted as /workspace inside the container.
 # The container is automatically removed when it exits.
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "Unknown option: $1" >&2
-            echo "Usage: claude-sandbox [--no-build] [--entrypoint <cmd>] [-- <command> [args...]]" >&2
+            echo "Usage: code-sandbox [--no-build] [--entrypoint <cmd>] [-- <command> [args...]]" >&2
             exit 1
             ;;
         *)
@@ -65,7 +65,7 @@ CMD=("${@:-bash}")
 
 # ── Build image ──────────────────────────────────────────────────────────────
 if ! $SKIP_BUILD; then
-    echo "[claude-sandbox] Building image '$IMAGE_NAME'..."
+    echo "[code-sandbox] Building image '$IMAGE_NAME'..."
     docker build -t "$IMAGE_NAME" "$PROJECT_DIR"
 fi
 
@@ -119,5 +119,5 @@ if [ -t 0 ] && [ -t 1 ]; then
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────
-echo "[claude-sandbox] Starting sandbox in: $WORKSPACE_DIR"
+echo "[code-sandbox] Starting sandbox in: $WORKSPACE_DIR"
 exec docker run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CMD[@]}"

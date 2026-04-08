@@ -522,7 +522,7 @@ Expected output summary: all tests pass, including:
 Squid may not be proxying HTTPS CONNECT correctly. Check the Squid access log inside the container:
 
 ```bash
-bin/claude-sandbox --no-build --entrypoint bash -- -c '
+bin/code-sandbox --no-build --entrypoint bash -- -c '
 /usr/local/bin/init-firewall.sh > /dev/null 2>&1
 curl --proxy http://localhost:3128 -v https://pypi.org 2>&1 | head -30
 cat /var/log/squid/access.log
@@ -536,7 +536,7 @@ The curl `-v` output should show `CONNECT pypi.org:443` being sent to the proxy.
 The domain ACL is not blocking. Inspect the generated squid.conf:
 
 ```bash
-bin/claude-sandbox --no-build --entrypoint bash -- -c '
+bin/code-sandbox --no-build --entrypoint bash -- -c '
 /usr/local/bin/init-firewall.sh > /dev/null 2>&1
 cat /etc/squid/squid.conf
 curl --proxy http://localhost:3128 -v https://pastebin.com 2>&1 | head -20
@@ -550,19 +550,19 @@ Verify `pastebin.com` is NOT listed in the generated squid.conf and that `http_a
 The `--uid-owner proxy` iptables rule may not be working (xt_owner module missing). Check:
 
 ```bash
-bin/claude-sandbox --no-build --entrypoint bash -- -c '
+bin/code-sandbox --no-build --entrypoint bash -- -c '
 /usr/local/bin/init-firewall.sh > /dev/null 2>&1
 iptables -L OUTPUT -n -v
 lsmod | grep xt_owner
 '
 ```
 
-If `xt_owner` module is missing, the container may need `--cap-add NET_ADMIN` (already present in `bin/claude-sandbox`) plus the module loaded on the host. This is a host kernel issue.
+If `xt_owner` module is missing, the container may need `--cap-add NET_ADMIN` (already present in `bin/code-sandbox`) plus the module loaded on the host. This is a host kernel issue.
 
 - [ ] **Step 5: Verify proxy env vars reach devuser**
 
 ```bash
-bin/claude-sandbox --no-build -- bash -c 'echo "http_proxy=$http_proxy"'
+bin/code-sandbox --no-build -- bash -c 'echo "http_proxy=$http_proxy"'
 ```
 
 Expected: `http_proxy=http://localhost:3128`

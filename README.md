@@ -24,22 +24,22 @@ cp -r claude-code-sandbox/ /path/to/your-project/infra/claude-code-sandbox/
 
 # 2. Customize (see sections below), then run from your project root
 cd /path/to/your-project
-/path/to/infra/claude-code-sandbox/bin/claude-sandbox
+/path/to/infra/claude-code-sandbox/bin/code-sandbox
 
 # 3. Run the security tests
 cd /path/to/your-project/infra/claude-code-sandbox/
 bash test-sandbox.sh
 
 # 4. Authenticate (first time only — stored in Docker volume)
-bin/claude-sandbox -- claude login
+bin/code-sandbox -- claude login
 
 # 5. Use Claude (from any directory — mounts cwd as /workspace)
 cd /path/to/your-project
-bin/claude-sandbox -- claude -p "fix the failing test" --max-turns 20
+bin/code-sandbox -- claude -p "fix the failing test" --max-turns 20
 
 # OpenCode is installed on each container start (same home volume as Claude).
-# First time: bin/claude-sandbox -- opencode auth login
-# Then:       bin/claude-sandbox -- opencode run "your task"
+# First time: bin/code-sandbox -- opencode auth login
+# Then:       bin/code-sandbox -- opencode run "your task"
 # LLM providers use different API hostnames; allowlist extras via EXTRA_ALLOWED_DOMAINS (see Firewall Allowlist).
 ```
 
@@ -63,11 +63,11 @@ docker compose build   # rebuild to bake in new settings
 
 ### 1. Source Code Mount
 
-`bin/claude-sandbox` mounts the **current working directory** as `/workspace` automatically — just run it from your project root. No configuration needed.
+`bin/code-sandbox` mounts the **current working directory** as `/workspace` automatically — just run it from your project root. No configuration needed.
 
 ```bash
 cd /path/to/your-project
-claude-sandbox -- claude -p "your task"
+code-sandbox -- claude -p "your task"
 ```
 
 The sandbox also creates a `claude-state-home` Docker volume for persisting Claude credentials and state across sessions. Never mount `.env`, `.git/config`, `~/.ssh`, `~/.aws`, or the Docker socket.
@@ -91,7 +91,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 ### 3. Firewall Allowlist (`init-firewall.sh`)
 
-The default domain list includes Anthropic/Claude, OpenCode (`opencode.ai`, `models.dev`, `opncd.ai`), GitHub, common package registries, and several dev/search sites. OpenCode is multi-provider: if your model vendor is not covered, append space-separated suffix domains with `EXTRA_ALLOWED_DOMAINS` (for example add `-e EXTRA_ALLOWED_DOMAINS=".api.openai.com"` to the `docker run` arguments in `bin/claude-sandbox`, or pass the same when invoking `docker run` yourself).
+The default domain list includes Anthropic/Claude, OpenCode (`opencode.ai`, `models.dev`, `opncd.ai`), GitHub, common package registries, and several dev/search sites. OpenCode is multi-provider: if your model vendor is not covered, append space-separated suffix domains with `EXTRA_ALLOWED_DOMAINS` (for example add `-e EXTRA_ALLOWED_DOMAINS=".api.openai.com"` to the `docker run` arguments in `bin/code-sandbox`, or pass the same when invoking `docker run` yourself).
 
 Find the `CUSTOMIZE THIS` section in older comments below to uncomment or add endpoints:
 
@@ -119,16 +119,16 @@ Adjust the allow/deny lists for your project structure:
 - **Allow list** — Add commands the agent needs (e.g., `Bash(cargo test *)`, `Bash(go build *)`)
 - **Deny list** — The defaults cover most exfiltration and escape vectors. Review and add project-specific denials if needed.
 
-### 5. Git Identity (`bin/claude-sandbox`)
+### 5. Git Identity (`bin/code-sandbox`)
 
-The Git identity is automatically read from the host system's `git config user.name` and `git config user.email`. If these are not set, it falls back to `Claude Code (sandbox) <claude-sandbox@localhost>`. To override, set `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` before running `bin/claude-sandbox`.
+The Git identity is automatically read from the host system's `git config user.name` and `git config user.email`. If these are not set, it falls back to `Claude Code (sandbox) <claude-sandbox@localhost>`. To override, set `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` before running `bin/code-sandbox`.
 
 ## File Reference
 
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Image definition — system packages, `gosu`, PATH for Claude Code and OpenCode CLIs, `devuser` account |
-| `bin/claude-sandbox` | Launcher — builds image, mounts cwd as `/workspace`, passes host UID/GID |
+| `bin/code-sandbox` | Launcher — builds image, mounts cwd as `/workspace`, passes host UID/GID |
 | `config/` | Config tree mirroring `~devuser/` — baked into image and locked at startup |
 | `config/.claude/settings.json` | Active permission rules and hooks |
 | `settings-profiles/` | Strict and permissive permission profiles |
@@ -184,10 +184,10 @@ The sandbox uses Claude subscription auth (Pro/Max plan), not API keys. Credenti
 
 ```bash
 # First-time login
-bin/claude-sandbox -- claude login
+bin/code-sandbox -- claude login
 
 # Credentials persist in the volume — no need to re-login
-bin/claude-sandbox -- claude -p "your task here"
+bin/code-sandbox -- claude -p "your task here"
 ```
 
 Do **not** set `ANTHROPIC_API_KEY` in the environment — it would bypass subscription auth and bill against your API account.

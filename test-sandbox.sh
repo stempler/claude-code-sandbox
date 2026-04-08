@@ -20,7 +20,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SANDBOX="$SCRIPT_DIR/bin/claude-sandbox"
+SANDBOX="$SCRIPT_DIR/bin/code-sandbox"
 cd "$SCRIPT_DIR"
 
 PASS=0
@@ -388,7 +388,7 @@ if [ $FAIL -gt 0 ]; then
     echo "    - Init script failures often indicate missing kernel modules"
     echo "      (iptables needs iptable_filter) or Docker capability issues."
     echo "    - On Docker Desktop (Windows/macOS), try:"
-    echo "        bin/claude-sandbox --entrypoint bash"
+    echo "        bin/code-sandbox --entrypoint bash"
     echo "    - To see raw container output, run with VERBOSE=1:"
     echo "        VERBOSE=1 bash test-sandbox.sh"
     if [ -n "${VERBOSE:-}" ]; then
