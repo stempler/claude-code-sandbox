@@ -4,10 +4,11 @@
 #
 # Runs as root so it can:
 #   1. Remap devuser UID/GID to match the host user (fixes bind-mount ownership)
-#   2. Lock agent permissions (settings.json + settings.local.json)
-#   3. Initialize egress firewall
-#   4. Warn if /workspace has no git repository
-#   5. Drop privileges and hand off to CMD via gosu
+#   2. Refresh Claude Code and OpenCode CLIs (before firewall)
+#   3. Lock agent permissions (settings.json + settings.local.json)
+#   4. Initialize egress firewall
+#   5. Warn if /workspace has no git repository
+#   6. Drop privileges and hand off to CMD via gosu
 ###############################################################################
 
 set -euo pipefail
@@ -82,6 +83,18 @@ fi
 echo "[entrypoint] Updating Claude Code..."
 gosu devuser bash -c 'curl -fsSL https://claude.ai/install.sh | bash' 2>&1 \
     || echo "[entrypoint] Update failed, using image version"
+
+# ── Update OpenCode CLI ─────────────────────────────────────────────────────
+echo "[entrypoint] Updating OpenCode..."
+gosu devuser bash -c 'curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path' 2>&1 \
+    || echo "[entrypoint] OpenCode install failed, using existing install if any"
+
+if [ ! -f /home/devuser/.local/share/opencode/auth.json ]; then
+    echo ""
+    echo "  No OpenCode provider credentials found."
+    echo "  Run 'opencode auth login' to configure providers (stored under /home/devuser)."
+    echo ""
+fi
 
 # ── Lock down agent permissions ────────────────────────────────────────────
 echo "[entrypoint] Locking agent permissions..."

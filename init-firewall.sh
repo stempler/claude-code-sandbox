@@ -33,6 +33,10 @@ DEFAULT_DOMAINS=(
     # Anthropic / Claude
     .anthropic.com
     .claude.ai
+    # OpenCode (install, models catalog, shared session import)
+    .opencode.ai
+    .models.dev
+    .opncd.ai
     # GitHub
     .github.com
     .githubusercontent.com

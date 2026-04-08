@@ -33,9 +33,14 @@ bash test-sandbox.sh
 # 4. Authenticate (first time only — stored in Docker volume)
 bin/claude-sandbox -- claude login
 
-# 5. Use it (from any directory — mounts cwd as /workspace)
+# 5. Use Claude (from any directory — mounts cwd as /workspace)
 cd /path/to/your-project
 bin/claude-sandbox -- claude -p "fix the failing test" --max-turns 20
+
+# OpenCode is installed on each container start (same home volume as Claude).
+# First time: bin/claude-sandbox -- opencode auth login
+# Then:       bin/claude-sandbox -- opencode run "your task"
+# LLM providers use different API hostnames; allowlist extras via EXTRA_ALLOWED_DOMAINS (see Firewall Allowlist).
 ```
 
 ## Permission Profiles
@@ -86,7 +91,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 ### 3. Firewall Allowlist (`init-firewall.sh`)
 
-By default only the Anthropic API and claude.ai are reachable. Find the `CUSTOMIZE THIS` section to uncomment or add endpoints:
+The default domain list includes Anthropic/Claude, OpenCode (`opencode.ai`, `models.dev`, `opncd.ai`), GitHub, common package registries, and several dev/search sites. OpenCode is multi-provider: if your model vendor is not covered, append space-separated suffix domains with `EXTRA_ALLOWED_DOMAINS` (for example add `-e EXTRA_ALLOWED_DOMAINS=".api.openai.com"` to the `docker run` arguments in `bin/claude-sandbox`, or pass the same when invoking `docker run` yourself).
+
+Find the `CUSTOMIZE THIS` section in older comments below to uncomment or add endpoints:
 
 ```bash
 # Uncomment PyPI if agent needs pip install:
@@ -120,7 +127,7 @@ The Git identity is automatically read from the host system's `git config user.n
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | Image definition — system packages, `gosu`, Claude Code CLI, `devuser` account |
+| `Dockerfile` | Image definition — system packages, `gosu`, PATH for Claude Code and OpenCode CLIs, `devuser` account |
 | `bin/claude-sandbox` | Launcher — builds image, mounts cwd as `/workspace`, passes host UID/GID |
 | `config/` | Config tree mirroring `~devuser/` — baked into image and locked at startup |
 | `config/.claude/settings.json` | Active permission rules and hooks |
