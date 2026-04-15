@@ -137,6 +137,75 @@ else
     echo "[entrypoint] WARNING: Cannot reach api.anthropic.com -- Claude may not respond."
 fi
 
+# ── Docker-in-Docker: initialize rootless Podman ──────────────────────────────
+if [ "${ENABLE_DOCKER:-}" = "true" ]; then
+    echo "[entrypoint] Initializing Docker-in-Docker (rootless Podman)..."
+
+    DEVUSER_UID=$(id -u devuser)
+    RUNTIME_DIR="/run/user/$DEVUSER_UID"
+
+    # XDG_RUNTIME_DIR is required by Podman for the socket and tmp files
+    mkdir -p "$RUNTIME_DIR"
+    chown devuser:devuser "$RUNTIME_DIR"
+    chmod 700 "$RUNTIME_DIR"
+
+    # Write containers.conf so Podman propagates the proxy into inner containers
+    CONTAINERS_CONF_DIR="/home/devuser/.config/containers"
+    mkdir -p "$CONTAINERS_CONF_DIR"
+    cat > "$CONTAINERS_CONF_DIR/containers.conf" <<CONF
+[containers]
+# Propagate proxy env vars into inner containers automatically
+http_proxy = true
+env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1"]
+
+[engine]
+runtime = "crun"
+CONF
+    chown -R devuser:devuser /home/devuser/.config/containers
+
+    # Export env vars for testcontainers and Docker CLI compatibility.
+    # podman-docker provides /usr/bin/docker as a shim to podman.
+    # TESTCONTAINERS_RYUK_DISABLED: Ryuk (reaper) is not compatible with Podman
+    #   socket API, and is unnecessary since the sandbox is fully ephemeral.
+    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+    export DOCKER_HOST="unix://$RUNTIME_DIR/podman/podman.sock"
+    export TESTCONTAINERS_RYUK_DISABLED=true
+
+    # Persist to /etc/environment so docker exec sessions pick them up too
+    cat >> /etc/environment <<EOF
+XDG_RUNTIME_DIR=$RUNTIME_DIR
+DOCKER_HOST=unix://$RUNTIME_DIR/podman/podman.sock
+TESTCONTAINERS_RYUK_DISABLED=true
+EOF
+
+    # Start the Podman API socket (Docker-compatible) as devuser so
+    # testcontainers and docker CLI can connect to it immediately.
+    # --time=0 means no idle timeout — runs for the lifetime of the container.
+    gosu devuser bash -c "
+        XDG_RUNTIME_DIR=$RUNTIME_DIR \
+        podman system service --time=0 unix://$RUNTIME_DIR/podman/podman.sock &
+    "
+
+    # Wait for the socket to appear (up to 10 seconds)
+    SOCKET_READY=false
+    for i in $(seq 1 20); do
+        if [ -S "$RUNTIME_DIR/podman/podman.sock" ]; then
+            SOCKET_READY=true
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [ "$SOCKET_READY" = "true" ]; then
+        echo "[entrypoint] Podman API socket ready at $RUNTIME_DIR/podman/podman.sock"
+        echo "[entrypoint]   DOCKER_HOST=$DOCKER_HOST"
+        echo "[entrypoint]   TESTCONTAINERS_RYUK_DISABLED=true"
+    else
+        echo "[entrypoint] WARNING: Podman socket did not appear within 10 seconds."
+        echo "[entrypoint]   Docker commands may fail until the socket is ready."
+    fi
+fi
+
 # ── Check for git repo in workspace ──────────────────────────────────────────
 cd /workspace
 if [ ! -d .git ]; then
