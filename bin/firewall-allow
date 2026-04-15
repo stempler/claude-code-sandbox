@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+###############################################################################
+# bin/firewall-allow — Add domains to the sandbox firewall allowlist
+#
+# Usage:
+#   firewall-allow [domain ...]
+#
+# Mode 1 (explicit domains):
+#   firewall-allow example.com other.org
+#   Prompts for each domain: default allowlist, project allowlist, or skip.
+#
+# Mode 2 (from denied log):
+#   firewall-allow
+#   Parses TCP_DENIED entries from the running container's Squid log,
+#   extracts unique denied domains, and prompts for each.
+#
+# Domain choices:
+#   [d]  Add to default allowlist (init-firewall.sh DEFAULT_DOMAINS array)
+#        Persists across all projects; requires image rebuild to take effect
+#        for future containers.
+#   [p]  Add to project allowlist (.sandbox-domains in current directory)
+#        Per-workspace; passed as EXTRA_ALLOWED_DOMAINS by bin/code-sandbox.
+#   [s]  Skip — do not add this domain
+#   Uppercase D/P/S — apply the same choice to all remaining domains.
+#
+# In both modes, if a container is already running for this workspace,
+# newly allowed domains are hot-reloaded into Squid without a restart.
+###############################################################################
+
+set -euo pipefail
+
+IMAGE_NAME="claude-code-sandbox"
+
+# Resolve project root relative to this script, following symlinks
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+WORKSPACE_DIR="$(pwd)"
+CONTAINER_NAME="claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)"
+SANDBOX_DOMAINS_FILE="$WORKSPACE_DIR/.sandbox-domains"
+INIT_FIREWALL="$PROJECT_DIR/init-firewall.sh"
+
+# ── Helper: normalize a raw domain string to .domain format ─────────────────
+normalize_domain() {
+    local raw="$1"
+    # Strip scheme first (before port-stripping, since http:// contains a colon)
+    local d="${raw#http://}"
+    d="${d#https://}"
+    # Strip port suffix (e.g. pastebin.com:443 → pastebin.com)
+    d="${d%%:*}"
+    # Strip trailing path
+    d="${d%%/*}"
+    # Add leading dot if missing
+    [[ "$d" != .* ]] && d=".$d"
+    echo "$d"
+}
+
+# ── Helper: check whether a domain is already in an allowlist ────────────────
+# Returns 0 (found) or 1 (not found); sets IS_ALLOWED_SOURCE to "default" or "project"
+IS_ALLOWED_SOURCE=""
+is_already_allowed() {
+    local domain="$1"
+    # Check DEFAULT_DOMAINS in init-firewall.sh
+    if [ -f "$INIT_FIREWALL" ]; then
+        local in_default
+        in_default=$(awk '/^DEFAULT_DOMAINS=\(/{found=1} found && /^\)/{found=0} found{print}' "$INIT_FIREWALL" \
+            | grep -v '^\s*#' | awk '{print $1}' | grep -Fx "$domain" || true)
+        if [ -n "$in_default" ]; then
+            IS_ALLOWED_SOURCE="default"
+            return 0
+        fi
+    fi
+    # Check .sandbox-domains
+    if [ -f "$SANDBOX_DOMAINS_FILE" ]; then
+        local in_project
+        in_project=$(grep -v '^\s*#' "$SANDBOX_DOMAINS_FILE" | grep -v '^\s*$' | grep -Fx "$domain" || true)
+        if [ -n "$in_project" ]; then
+            IS_ALLOWED_SOURCE="project"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# ── Helper: is this string an IP address? (skip IPs — no domain to allow) ───
+is_ip_address() {
+    local s="$1"
+    [[ "$s" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# ── Phase A: Collect domains ─────────────────────────────────────────────────
+
+DOMAINS=()
+
+if [ $# -gt 0 ]; then
+    # Mode 1: explicit arguments
+    for arg in "$@"; do
+        d="$(normalize_domain "$arg")"
+        DOMAINS+=("$d")
+    done
+    # Deduplicate while preserving order
+    DOMAINS=($(printf '%s\n' "${DOMAINS[@]}" | awk '!seen[$0]++'))
+else
+    # Mode 2: parse the running container's Squid log
+    if ! docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
+        echo "[firewall-allow] No running container found for: $WORKSPACE_DIR" >&2
+        echo "[firewall-allow] Start the sandbox first, or pass domains explicitly:" >&2
+        echo "[firewall-allow]   firewall-allow example.com" >&2
+        exit 1
+    fi
+
+    echo "[firewall-allow] Reading denied requests from container proxy log..."
+    RAW_DENIED=$(docker exec "$CONTAINER_NAME" \
+        grep "TCP_DENIED" /var/log/squid/access.log 2>/dev/null || true)
+
+    if [ -z "$RAW_DENIED" ]; then
+        echo "[firewall-allow] No denied requests found in proxy log."
+        exit 0
+    fi
+
+    # Extract unique domains from field 7 (CONNECT target), strip port, normalize
+    while IFS= read -r raw; do
+        d="$(normalize_domain "$raw")"
+        # Skip if it normalized to just a dot (empty hostname)
+        if [ -z "${d#.}" ]; then continue; fi
+        DOMAINS+=("$d")
+    done < <(echo "$RAW_DENIED" | awk '{print $7}' | sort -u)
+fi
+
+if [ ${#DOMAINS[@]} -eq 0 ]; then
+    echo "[firewall-allow] No domains to process."
+    exit 0
+fi
+
+# ── Phase B: Filter already-allowed and IPs ──────────────────────────────────
+
+PENDING=()
+for d in "${DOMAINS[@]}"; do
+    # Skip bare dot (degenerate normalize result)
+    if [ "$d" = "." ]; then
+        continue
+    fi
+    # Skip IP addresses (strip leading dot for check)
+    bare="${d#.}"
+    if is_ip_address "$bare"; then
+        echo "[firewall-allow] Skipping IP address: $bare"
+        continue
+    fi
+    if is_already_allowed "$d"; then
+        echo "[firewall-allow] Already allowed: $d ($IS_ALLOWED_SOURCE)"
+        continue
+    fi
+    PENDING+=("$d")
+done
+
+if [ ${#PENDING[@]} -eq 0 ]; then
+    echo "[firewall-allow] All domains are already allowed."
+    exit 0
+fi
+
+# ── Phase C: Interactive prompts ─────────────────────────────────────────────
+
+if [ ! -t 0 ]; then
+    echo "[firewall-allow] Interactive mode requires a TTY." >&2
+    echo "[firewall-allow] Pass domains explicitly to use in non-interactive contexts." >&2
+    exit 1
+fi
+
+DEFAULT_ADD=()
+PROJECT_ADD=()
+SKIPPED=()
+BATCH_CHOICE=""  # set to d/p/s when user picks uppercase
+
+echo ""
+for d in "${PENDING[@]}"; do
+    if [ -n "$BATCH_CHOICE" ]; then
+        choice="$BATCH_CHOICE"
+    else
+        echo "  $d"
+        echo "    [d] Add to default allowlist (init-firewall.sh)"
+        echo "    [p] Add to project allowlist (.sandbox-domains)"
+        echo "    [s] Skip"
+        printf "    Choice [d/p/s / D/P/S=apply to all remaining]: "
+        read -r choice </dev/tty
+    fi
+
+    case "$choice" in
+        D) BATCH_CHOICE="d"; choice="d" ;;
+        P) BATCH_CHOICE="p"; choice="p" ;;
+        S) BATCH_CHOICE="s"; choice="s" ;;
+    esac
+
+    case "$choice" in
+        d) DEFAULT_ADD+=("$d") ;;
+        p) PROJECT_ADD+=("$d") ;;
+        s) SKIPPED+=("$d") ;;
+        *)
+            echo "    Unknown choice '$choice', skipping." >&2
+            SKIPPED+=("$d")
+            ;;
+    esac
+done
+echo ""
+
+# ── Phase D: Apply changes to host files ─────────────────────────────────────
+
+# Default allowlist: insert into init-firewall.sh DEFAULT_DOMAINS array
+if [ ${#DEFAULT_ADD[@]} -gt 0 ]; then
+    if [ ! -f "$INIT_FIREWALL" ]; then
+        echo "[firewall-allow] ERROR: cannot find $INIT_FIREWALL" >&2
+        exit 1
+    fi
+
+    # Build the insertion block
+    INSERT_BLOCK="    # Added by firewall-allow ($(date +%Y-%m-%d))"
+    for d in "${DEFAULT_ADD[@]}"; do
+        INSERT_BLOCK+=$'\n'"    $d"
+    done
+
+    # Insert before the closing ) of DEFAULT_DOMAINS using awk
+    awk -v block="$INSERT_BLOCK" '
+        /^DEFAULT_DOMAINS=\(/ { in_array=1 }
+        in_array && /^\)/ {
+            print block
+            in_array=0
+        }
+        { print }
+    ' "$INIT_FIREWALL" > "${INIT_FIREWALL}.tmp"
+    mv "${INIT_FIREWALL}.tmp" "$INIT_FIREWALL"
+    echo "[firewall-allow] Updated $INIT_FIREWALL (+${#DEFAULT_ADD[@]} domains)"
+fi
+
+# Project allowlist: append to .sandbox-domains
+SANDBOX_DOMAINS_CREATED=false
+if [ ${#PROJECT_ADD[@]} -gt 0 ]; then
+    if [ ! -f "$SANDBOX_DOMAINS_FILE" ]; then
+        SANDBOX_DOMAINS_CREATED=true
+        cat > "$SANDBOX_DOMAINS_FILE" <<'EOF'
+# Project-specific sandbox domain allowlist
+# Passed as EXTRA_ALLOWED_DOMAINS when starting the container.
+# One domain per line. Leading dot = domain and all subdomains.
+# Lines starting with # are comments. Empty lines are ignored.
+EOF
+    fi
+    {
+        echo "# Added by firewall-allow ($(date +%Y-%m-%d))"
+        printf '%s\n' "${PROJECT_ADD[@]}"
+    } >> "$SANDBOX_DOMAINS_FILE"
+    echo "[firewall-allow] Updated .sandbox-domains (+${#PROJECT_ADD[@]} domains)"
+    if $SANDBOX_DOMAINS_CREATED; then
+        echo "[firewall-allow] Tip: add .sandbox-domains to your project's .gitignore"
+    fi
+fi
+
+# ── Phase E: Hot-reload running container ─────────────────────────────────────
+
+ALL_NEW=("${DEFAULT_ADD[@]}" "${PROJECT_ADD[@]}")
+
+if [ ${#ALL_NEW[@]} -gt 0 ] && \
+   docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
+
+    echo "[firewall-allow] Hot-reloading Squid in running container..."
+
+    for d in "${ALL_NEW[@]}"; do
+        # Insert new ACL line before "acl CONNECT method CONNECT"
+        docker exec "$CONTAINER_NAME" sed -i \
+            "/^acl CONNECT method CONNECT\$/i acl allowed_domains dstdomain $d" \
+            /etc/squid/squid.conf
+    done
+
+    # Reconfigure Squid — reads the updated conf without dropping connections
+    docker exec "$CONTAINER_NAME" squid -k reconfigure
+    echo "[firewall-allow] Squid reloaded — new domains are active immediately"
+fi
+
+# ── Phase F: Summary ─────────────────────────────────────────────────────────
+
+echo "[firewall-allow] Done."
+
+if [ ${#DEFAULT_ADD[@]} -gt 0 ]; then
+    if docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q . 2>/dev/null; then
+        echo "  Default allowlist: +${#DEFAULT_ADD[@]} (applied; rebuild image to persist)"
+    else
+        echo "  Default allowlist: +${#DEFAULT_ADD[@]} (rebuild image to apply)"
+    fi
+fi
+if [ ${#PROJECT_ADD[@]} -gt 0 ]; then
+    if docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q . 2>/dev/null; then
+        echo "  Project allowlist: +${#PROJECT_ADD[@]} (applied to running container)"
+    else
+        echo "  Project allowlist: +${#PROJECT_ADD[@]} (start/restart container to apply)"
+    fi
+fi
+if [ ${#SKIPPED[@]} -gt 0 ]; then
+    echo "  Skipped: ${#SKIPPED[@]}"
+fi

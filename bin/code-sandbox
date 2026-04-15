@@ -33,6 +33,7 @@ ENTRYPOINT_OVERRIDE=""
 
 # Deterministic container name based on workspace path (allows reuse detection)
 CONTAINER_NAME="claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)"
+SANDBOX_DOMAINS_FILE="$WORKSPACE_DIR/.sandbox-domains"
 
 # ── Parse flags ─────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -107,6 +108,14 @@ DOCKER_ARGS=(
     --memory 4g
     --cpus 2.0
 )
+
+# ── Project-specific domain allowlist ───────────────────────────────────────
+if [ -f "$SANDBOX_DOMAINS_FILE" ]; then
+    EXTRA_DOMAINS=$(grep -v '^\s*#' "$SANDBOX_DOMAINS_FILE" | grep -v '^\s*$' | tr '\n' ' ' | sed 's/ $//')
+    if [ -n "$EXTRA_DOMAINS" ]; then
+        DOCKER_ARGS+=(-e "EXTRA_ALLOWED_DOMAINS=$EXTRA_DOMAINS")
+    fi
+fi
 
 if [ -n "$ENTRYPOINT_OVERRIDE" ]; then
     DOCKER_ARGS+=(--entrypoint "$ENTRYPOINT_OVERRIDE")
