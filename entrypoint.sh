@@ -114,6 +114,18 @@ export HTTPS_PROXY=http://localhost:3128
 export no_proxy=localhost,127.0.0.1
 export NO_PROXY=localhost,127.0.0.1
 
+# Write proxy vars to /etc/environment so that docker exec sessions and tools
+# that read system-wide env (rather than inheriting from the entrypoint process)
+# also pick them up automatically.
+cat > /etc/environment <<'EOF'
+http_proxy=http://localhost:3128
+https_proxy=http://localhost:3128
+HTTP_PROXY=http://localhost:3128
+HTTPS_PROXY=http://localhost:3128
+no_proxy=localhost,127.0.0.1
+NO_PROXY=localhost,127.0.0.1
+EOF
+
 # ── Verify API connectivity ────────────────────────────────────────────────
 # Any HTTP response (even 4xx) means TCP+TLS succeeded and the host is reachable.
 # HTTP code 000 means the connection itself failed (firewall, DNS, etc.).
