@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     build-essential \
     ncurses-term \
+    podman podman-docker fuse-overlayfs slirp4netns uidmap crun \
     && rm -rf /var/lib/apt/lists/*
 
 # ── mise-en-place ────────────────────────────────────────────────────────────
@@ -40,7 +41,9 @@ RUN install -dm 755 /etc/apt/keyrings \
 # ── Non-root user ───────────────────────────────────────────────────────────
 # No sudo needed: entrypoint runs as root and drops to devuser via gosu.
 RUN useradd -m -s /bin/bash devuser \
-    && echo 'eval "$(mise activate bash)"' >> /home/devuser/.bashrc
+    && echo 'eval "$(mise activate bash)"' >> /home/devuser/.bashrc \
+    && echo "devuser:100000:65536" >> /etc/subuid \
+    && echo "devuser:100000:65536" >> /etc/subgid
 
 # ── Project dependencies (CUSTOMIZE THIS) ───────────────────────────────────
 # Example: Python venv with your project's packages
@@ -60,7 +63,9 @@ RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /u
 # Config: copy the config/ tree (mirrors home dir) to the user home AND to a
 # root-owned canonical location that the entrypoint restores on every boot.
 COPY config/ /usr/local/share/sandbox-config/
+COPY config-dind/ /usr/local/share/sandbox-config-dind/
 RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
+    && find /usr/local/share/sandbox-config-dind -type f -exec chmod 0444 {} + \
     && chown -R devuser:devuser /home/devuser
 
 # ── Entrypoint runs as root so it can remap devuser UID/GID to match the ────

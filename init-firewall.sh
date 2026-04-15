@@ -91,6 +91,19 @@ else
         read -ra EXTRA <<< "$EXTRA_ALLOWED_DOMAINS"
         DOMAIN_LIST+=("${EXTRA[@]}")
     fi
+    # Docker-in-Docker mode: add container registries so inner containers can pull images
+    if [ "${ENABLE_DOCKER:-}" = "true" ]; then
+        DOMAIN_LIST+=(
+            .docker.io
+            .docker.com
+            .production.cloudflare.docker.com
+            .ghcr.io
+            .gcr.io
+            .quay.io
+            .registry.k8s.io
+        )
+        echo "[firewall] Added container registry domains for DinD mode (ENABLE_DOCKER=true)"
+    fi
 fi
 
 {

@@ -13,7 +13,15 @@
 
 set -euo pipefail
 
+# Select settings profile: DinD profile when ENABLE_DOCKER=true, otherwise default
 CONFIG_SRC="/usr/local/share/sandbox-config"
+CONFIG_SRC_DIND="/usr/local/share/sandbox-config-dind"
+
+if [ "${ENABLE_DOCKER:-}" = "true" ] && [ -d "$CONFIG_SRC_DIND" ]; then
+    CONFIG_SRC="$CONFIG_SRC_DIND"
+    echo "[lock-settings] Using DinD settings profile (ENABLE_DOCKER=true)"
+fi
+
 CONFIG_DST="/home/devuser"
 CLAUDE_DIR="$CONFIG_DST/.claude"
 SETTINGS_LOCAL="$CLAUDE_DIR/settings.local.json"
