@@ -70,6 +70,10 @@ DEFAULT_DOMAINS=(
     # Json schema
     .json-schema.org
     .schemastore.org
+    # Added by firewall-allow (2026-04-15)
+    .dl.k8s.io
+    .mise-versions.jdx.dev
+    .releases.hashicorp.com
 )
 
 ###############################################################################
