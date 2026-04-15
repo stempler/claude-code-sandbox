@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     build-essential \
     ncurses-term \
-    podman podman-docker fuse-overlayfs slirp4netns uidmap crun \
+    podman podman-docker fuse-overlayfs slirp4netns uidmap crun passt \
     && rm -rf /var/lib/apt/lists/*
 
 # ── mise-en-place ────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ RUN install -dm 755 /etc/apt/keyrings \
 # No sudo needed: entrypoint runs as root and drops to devuser via gosu.
 RUN useradd -m -s /bin/bash devuser \
     && echo 'eval "$(mise activate bash)"' >> /home/devuser/.bashrc \
+    && sed -i '/^devuser:/d' /etc/subuid /etc/subgid \
     && echo "devuser:100000:65536" >> /etc/subuid \
     && echo "devuser:100000:65536" >> /etc/subgid
 
