@@ -424,40 +424,29 @@
     },
     {
       "names": [
-        "clone"
+        "clone",
+        "clone3"
       ],
-      "action": "SCMP_ACT_ALLOW",
-      "args": [
-        {
-          "index": 0,
-          "value": 2114060288,
-          "op": "SCMP_CMP_MASKED_EQ"
-        }
-      ],
-      "excludes": {
-        "arches": ["SCMP_ARCH_AARCH64"]
-      }
+      "action": "SCMP_ACT_ALLOW"
     },
     {
       "names": [
-        "clone"
+        "keyctl",
+        "add_key",
+        "request_key"
       ],
-      "action": "SCMP_ACT_ALLOW",
-      "args": [
-        {
-          "index": 1,
-          "value": 2114060288,
-          "op": "SCMP_CMP_MASKED_EQ"
-        }
-      ],
-      "includes": {
-        "arches": ["SCMP_ARCH_AARCH64"]
-      }
+      "action": "SCMP_ACT_ALLOW"
     },
     {
-      "names": ["clone3"],
-      "action": "SCMP_ACT_ERRNO",
-      "errnoRet": 38
+      "names": [
+        "open_tree",
+        "move_mount",
+        "fsopen",
+        "fsmount",
+        "fspick",
+        "mount_setattr"
+      ],
+      "action": "SCMP_ACT_ALLOW"
     },
     {
       "names": [

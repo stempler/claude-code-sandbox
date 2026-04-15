@@ -141,6 +141,10 @@ fi
 if [ "${ENABLE_DOCKER:-}" = "true" ]; then
     echo "[entrypoint] Initializing Docker-in-Docker (rootless Podman)..."
 
+    # Make the root mount shared so Podman can set up bind mounts inside containers.
+    # Requires SYS_ADMIN capability (added by --enable-docker in bin/code-sandbox).
+    mount --make-rshared / 2>/dev/null || true
+
     DEVUSER_UID=$(id -u devuser)
     RUNTIME_DIR="/run/user/$DEVUSER_UID"
 
@@ -149,7 +153,7 @@ if [ "${ENABLE_DOCKER:-}" = "true" ]; then
     chown devuser:devuser "$RUNTIME_DIR"
     chmod 700 "$RUNTIME_DIR"
 
-    # Write containers.conf so Podman propagates the proxy into inner containers
+    # Write Podman config: containers.conf (proxy injection) + storage.conf (fuse-overlayfs)
     CONTAINERS_CONF_DIR="/home/devuser/.config/containers"
     mkdir -p "$CONTAINERS_CONF_DIR"
     cat > "$CONTAINERS_CONF_DIR/containers.conf" <<CONF
@@ -157,11 +161,30 @@ if [ "${ENABLE_DOCKER:-}" = "true" ]; then
 # Propagate proxy env vars into inner containers automatically
 http_proxy = true
 env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1"]
+# Suppress default sysctl that /proc/sys is read-only inside Docker
+default_sysctls = []
+# Share the sandbox PID, UTS, and network namespaces so inner containers:
+#   - don't need to mount /proc (pidns=host bypasses Docker's nested PID ns restriction)
+#   - don't call sethostname (utsns=host)
+#   - can reach the Squid proxy at localhost:3128 (netns=host shares the outer loopback)
+# With netns=host, inner container traffic is subject to the same iptables rules as
+# devuser — it can only exit via Squid (loopback traffic is allowed; direct TCP is not).
+pidns = "host"
+utsns = "host"
+netns = "host"
 
 [engine]
 runtime = "crun"
 CONF
-    chown -R devuser:devuser /home/devuser/.config/containers
+    cat > "$CONTAINERS_CONF_DIR/storage.conf" <<STOR
+[storage]
+driver = "overlay"
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+mountopt = "nodev,noatime"
+STOR
+    chown -R devuser:devuser /home/devuser/.config
 
     # Export env vars for testcontainers and Docker CLI compatibility.
     # podman-docker provides /usr/bin/docker as a shim to podman.
@@ -177,6 +200,10 @@ XDG_RUNTIME_DIR=$RUNTIME_DIR
 DOCKER_HOST=unix://$RUNTIME_DIR/podman/podman.sock
 TESTCONTAINERS_RYUK_DISABLED=true
 EOF
+
+    # Pre-create the socket directory — podman system service won't create it.
+    mkdir -p "$RUNTIME_DIR/podman"
+    chown devuser:devuser "$RUNTIME_DIR/podman"
 
     # Start the Podman API socket (Docker-compatible) as devuser so
     # testcontainers and docker CLI can connect to it immediately.

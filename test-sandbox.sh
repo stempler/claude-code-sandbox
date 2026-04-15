@@ -394,80 +394,156 @@ set -euo pipefail
 
 echo "=== BEGIN DIND TESTS ==="
 
-# Wait for Podman socket (started by entrypoint; should already be up)
-RUNTIME_DIR="/run/user/$(id -u devuser)"
-SOCKET="$RUNTIME_DIR/podman/podman.sock"
-SOCKET_READY=false
-for i in $(seq 1 20); do
-    if [ -S "$SOCKET" ]; then SOCKET_READY=true; break; fi
-    sleep 0.5
-done
-if [ "$SOCKET_READY" != "true" ]; then
-    echo "TEST_DIND_SOCKET_READY=FAIL (socket did not appear at $SOCKET)"
-else
-    echo "TEST_DIND_SOCKET_READY=PASS"
+# ── Mirror entrypoint: remap devuser UID/GID to match host ──────────────
+if echo "${HOST_UID:-}" | grep -qE "^[0-9]+$" && echo "${HOST_GID:-}" | grep -qE "^[0-9]+$"; then
+    CURRENT_UID=$(id -u devuser)
+    CURRENT_GID=$(id -g devuser)
+    if [ "$HOST_GID" != "$CURRENT_GID" ]; then
+        EXISTING_GROUP=$(getent group "$HOST_GID" | cut -d: -f1 || true)
+        if [ -n "$EXISTING_GROUP" ]; then
+            usermod -g "$HOST_GID" devuser
+        else
+            groupmod -g "$HOST_GID" devuser
+        fi
+    fi
+    if [ "$HOST_UID" != "$CURRENT_UID" ]; then
+        uid_owner=$(getent passwd "$HOST_UID" | cut -d: -f1 || true)
+        if [ -n "$uid_owner" ] && [ "$uid_owner" != "devuser" ]; then
+            temp_uid=99990
+            while getent passwd "$temp_uid" >/dev/null; do temp_uid=$((temp_uid + 1)); done
+            other_home=$(getent passwd "$uid_owner" | cut -d: -f6)
+            usermod -u "$temp_uid" "$uid_owner"
+            if [ -n "$other_home" ] && [ -d "$other_home" ]; then
+                chown -R "$uid_owner:" "$other_home" 2>/dev/null || true
+            fi
+        fi
+        usermod -u "$HOST_UID" devuser
+    fi
+    chown -R devuser /home/devuser 2>/dev/null || true
 fi
 
-# Basic container execution
+# ── Lock settings (ENABLE_DOCKER=true selects dind profile) ─────────────
+/usr/local/bin/lock-settings.sh > /dev/null 2>&1
+
+# ── Initialize firewall (Squid + iptables) ───────────────────────────────
+/usr/local/bin/init-firewall.sh > /dev/null 2>&1
+
+# ── Make root mount shared (required for rootless Podman bind mounts) ────
+mount --make-rshared / > /dev/null 2>&1 || true
+
+# ── Set up rootless Podman ────────────────────────────────────────────────
+DEVUSER_UID=$(id -u devuser)
+RUNTIME_DIR="/run/user/$DEVUSER_UID"
+mkdir -p "$RUNTIME_DIR"
+chown devuser:devuser "$RUNTIME_DIR"
+chmod 700 "$RUNTIME_DIR"
+
+CONTAINERS_DIR="/home/devuser/.config/containers"
+mkdir -p "$CONTAINERS_DIR"
+cat > "$CONTAINERS_DIR/storage.conf" <<STOR
+[storage]
+driver = "overlay"
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+mountopt = "nodev,noatime"
+STOR
+cat > "$CONTAINERS_DIR/containers.conf" <<CONF
+[containers]
+http_proxy = true
+env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1"]
+default_sysctls = []
+pidns = "host"
+utsns = "host"
+netns = "host"
+
+[engine]
+runtime = "crun"
+CONF
+chown -R devuser:devuser /home/devuser/.config
+
+# Start Podman API socket (Docker-compatible) as devuser.
+# Start early so it has time to appear while the other tests run.
+# Pre-create the socket directory (podman system service does not create it).
+SOCKET="$RUNTIME_DIR/podman/podman.sock"
+mkdir -p "$RUNTIME_DIR/podman"
+chown devuser:devuser "$RUNTIME_DIR/podman"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman system service --time=0 unix://$SOCKET" > /dev/null 2>&1 &
+
+# ── DinD settings profile ─────────────────────────────────────────────────
+if grep -q "dind-permissive" /home/devuser/.claude/settings.json 2>/dev/null; then
+    echo "TEST_DIND_SETTINGS_PROFILE=PASS"
+else
+    echo "TEST_DIND_SETTINGS_PROFILE=FAIL (dind-permissive profile not loaded in settings.json)"
+fi
+
+# ── Basic container execution ─────────────────────────────────────────────
 if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine echo hello" 2>/dev/null | grep -q "hello"; then
     echo "TEST_DIND_RUNS=PASS"
 else
     echo "TEST_DIND_RUNS=FAIL (podman run --rm alpine echo hello failed)"
 fi
 
-# Host filesystem isolation: mounting / inside an inner container should show
-# the sandbox root, not the real host root.  The real host will have a different
-# /etc/hostname than the sandbox container.
+# ── Host filesystem isolation ─────────────────────────────────────────────
+# Mounting / into an inner container should see the sandbox root, not the real host.
 SANDBOX_HOSTNAME=$(hostname)
-INNER_HOST_HOSTNAME=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /:/host:ro alpine cat /host/etc/hostname 2>/dev/null" || echo "ERROR")
-if [ "$INNER_HOST_HOSTNAME" = "$SANDBOX_HOSTNAME" ]; then
+INNER_HOSTNAME=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /:/host:ro alpine cat /host/etc/hostname 2>/dev/null" 2>/dev/null || echo "ERROR")
+if [ "$INNER_HOSTNAME" = "$SANDBOX_HOSTNAME" ]; then
     echo "TEST_DIND_HOST_FS_ISOLATED=PASS"
 else
-    echo "TEST_DIND_HOST_FS_ISOLATED=FAIL (inner /host/hostname=$INNER_HOST_HOSTNAME, sandbox hostname=$SANDBOX_HOSTNAME)"
+    echo "TEST_DIND_HOST_FS_ISOLATED=FAIL (inner saw hostname=$INNER_HOSTNAME, expected sandbox=$SANDBOX_HOSTNAME)"
 fi
 
-# Workspace accessible from inner container
+# ── Workspace mount ────────────────────────────────────────────────────────
 if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /workspace:/workspace:ro alpine test -d /workspace" 2>/dev/null; then
     echo "TEST_DIND_WORKSPACE_MOUNT=PASS"
 else
     echo "TEST_DIND_WORKSPACE_MOUNT=FAIL (could not mount /workspace into inner container)"
 fi
 
-# Firewall enforced for inner containers: blocked domain must fail
-# Inner containers go through devuser'\''s network (pasta/slirp4netns).
-# Direct connections from devuser are rejected by iptables; must use proxy.
-# Without proxy config, pastebin.com should be unreachable.
+# ── Firewall blocks inner containers without proxy ────────────────────────
+# Inner container traffic exits as devuser UID → iptables rejects direct TCP.
+# Without proxy env vars, outbound HTTP should fail.
 if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine wget -q --tries=1 --timeout=5 -O- http://pastebin.com 2>/dev/null" 2>/dev/null | head -1 | grep -qi "doctype\|html"; then
-    echo "TEST_DIND_FIREWALL_BLOCKS=FAIL (inner container reached pastebin.com directly!)"
+    echo "TEST_DIND_FIREWALL_BLOCKS=FAIL (inner container reached pastebin.com without proxy!)"
 else
     echo "TEST_DIND_FIREWALL_BLOCKS=PASS"
 fi
 
-# Proxy works for inner containers: allowed domain should be reachable when proxy is configured
+# ── Proxy allows allowlisted domains from inner containers ────────────────
+# Proxy env vars are set via containers.conf; inner container uses them.
+# Use http:// so BusyBox wget (alpine) can proxy via Squid without CONNECT.
+# Any HTTP response (200, 301, etc.) proves the proxy forwarded the request.
 HTTP_CODE=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR \
     podman run --rm \
-        -e http_proxy=http://localhost:3128 \
-        -e https_proxy=http://localhost:3128 \
-        alpine wget -q --tries=1 --timeout=10 -S -O /dev/null https://pypi.org 2>&1 || true" 2>/dev/null \
+        alpine wget -q --tries=1 --timeout=10 -S -O /dev/null http://pypi.org 2>&1 || true" 2>/dev/null \
     | grep "^  HTTP/" | tail -1 | awk '"'"'{print $2}'"'"' || echo "000")
 if [ -n "$HTTP_CODE" ] && [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "503" ]; then
     echo "TEST_DIND_PROXY_ALLOWS=PASS"
 else
-    echo "TEST_DIND_PROXY_ALLOWS=FAIL (HTTP $HTTP_CODE reaching pypi.org via proxy from inner container)"
+    echo "TEST_DIND_PROXY_ALLOWS=FAIL (HTTP $HTTP_CODE reaching pypi.org from inner container)"
 fi
 
-# Docker CLI compatibility: the docker command (podman-docker shim) must work
+# ── Podman API socket ready ────────────────────────────────────────────────
+# The socket was started early (before other tests) to allow startup time.
+# By now, the other 5 tests above have run (~30s total), giving the service
+# enough time to initialize and create the socket file.
+SOCKET_READY=false
+for i in $(seq 1 20); do
+    if [ -S "$SOCKET" ]; then SOCKET_READY=true; break; fi
+    sleep 0.5
+done
+if [ "$SOCKET_READY" = "true" ]; then
+    echo "TEST_DIND_SOCKET_READY=PASS"
+else
+    echo "TEST_DIND_SOCKET_READY=FAIL (socket did not appear at $SOCKET)"
+fi
+
+# ── Docker CLI compatibility (podman-docker shim) ─────────────────────────
 if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR DOCKER_HOST=unix://$SOCKET docker run --rm alpine echo docker-compat" 2>/dev/null | grep -q "docker-compat"; then
     echo "TEST_DIND_DOCKER_CLI_COMPAT=PASS"
 else
-    echo "TEST_DIND_DOCKER_CLI_COMPAT=FAIL (docker CLI compatibility check failed)"
-fi
-
-# DinD settings profile is loaded: _profile field must be "dind-permissive"
-if grep -q "dind-permissive" /home/devuser/.claude/settings.json 2>/dev/null; then
-    echo "TEST_DIND_SETTINGS_PROFILE=PASS"
-else
-    echo "TEST_DIND_SETTINGS_PROFILE=FAIL (dind-permissive profile not loaded in settings.json)"
+    echo "TEST_DIND_DOCKER_CLI_COMPAT=FAIL (docker CLI shim failed)"
 fi
 
 echo "=== END DIND TESTS ==="

@@ -125,6 +125,9 @@ if $ENABLE_DOCKER; then
         --pids-limit 512
         --memory 8g
         --security-opt "seccomp=${PROJECT_DIR}/config/dind-seccomp.json"
+        --device /dev/fuse
+        --device /dev/net/tun
+        --cap-add SYS_ADMIN
     )
 else
     DOCKER_ARGS+=(
