@@ -16,7 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ── System packages ─────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git ca-certificates gnupg gosu \
+    curl git ca-certificates gnupg gosu jq \
     iptables iproute2 dnsutils \
     squid \
     python3 python3-pip python3-venv \
@@ -55,18 +55,26 @@ RUN python3 -m venv /home/devuser/venv \
 #     your-package-here pytest black ruff
 
 # ── Copy scripts and config ─────────────────────────────────────────────────
-COPY init-firewall.sh /usr/local/bin/init-firewall.sh
-COPY lock-settings.sh /usr/local/bin/lock-settings.sh
-COPY entrypoint.sh    /usr/local/bin/entrypoint.sh
-COPY proxy-log.sh     /usr/local/bin/proxy-log
-RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log
+COPY init-firewall.sh    /usr/local/bin/init-firewall.sh
+COPY lock-settings.sh   /usr/local/bin/lock-settings.sh
+COPY entrypoint.sh      /usr/local/bin/entrypoint.sh
+COPY proxy-log.sh       /usr/local/bin/proxy-log
+COPY render-secrets.sh  /usr/local/bin/render-secrets.sh
+RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log /usr/local/bin/render-secrets.sh
+
+# ── gomplate (template engine for secret injection) ──────────────────────────
+RUN curl -fsSL https://github.com/hairyhenderson/gomplate/releases/download/v4.3.0/gomplate_linux-amd64 \
+    -o /usr/local/bin/gomplate \
+    && chmod 755 /usr/local/bin/gomplate
 
 # Config: copy the config/ tree (mirrors home dir) to the user home AND to a
 # root-owned canonical location that the entrypoint restores on every boot.
 COPY config/ /usr/local/share/sandbox-config/
 COPY config-dind/ /usr/local/share/sandbox-config-dind/
+COPY sandbox-templates/ /usr/local/share/sandbox-templates/
 RUN find /usr/local/share/sandbox-config -type f -exec chmod 0444 {} + \
     && find /usr/local/share/sandbox-config-dind -type f -exec chmod 0444 {} + \
+    && find /usr/local/share/sandbox-templates -type f -exec chmod 0444 {} + \
     && chown -R devuser:devuser /home/devuser
 
 # ── Entrypoint runs as root so it can remap devuser UID/GID to match the ────
