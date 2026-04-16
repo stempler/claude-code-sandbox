@@ -24,6 +24,9 @@ bin/code-sandbox -- claude -p "your task" --max-turns 20
 # Enable Docker (Podman) inside the sandbox for testcontainers / docker builds
 bin/code-sandbox --enable-docker -- claude -p "run the tests" --max-turns 30
 
+# Credentials: place .sandbox-secrets.yaml in the workspace to inject
+# sandbox-specific credentials. Resolved on host, wiped from container after placement.
+
 # Run security test suite (28 checks)
 bash test-sandbox.sh
 
@@ -59,6 +62,9 @@ proxy-log [all|denied|allowed|follow]
 | `settings-profiles/strict.json` | No arbitrary shell/Python; only explicitly listed commands |
 | `settings-profiles/permissive.json` | Allows `python *`; relies on firewall as primary defense |
 | `settings-profiles/dind-permissive.json` | Permissive + Docker/Podman commands; for use with `--enable-docker` |
+| `render-credentials.sh` | Container-side credential rendering; reads payload, renders gomplate templates, locks files, wipes payload |
+| `.sandbox-secrets.yaml` | Per-project credential config (not in image; placed in workspace root on host) |
+| `sandbox-templates/` | Built-in gomplate templates for common formats (gradle-properties, dotenv, npmrc, netrc) |
 
 ### Network Flow
 
@@ -96,6 +102,64 @@ TESTCONTAINERS_RYUK_DISABLED=true
 # .sandbox-domains
 registry.mycompany.com
 ```
+
+### Credential Injection (`.sandbox-secrets.yaml`)
+
+Place a `.sandbox-secrets.yaml` file in the workspace root to inject sandbox-specific credentials into the container. These should be credentials created specifically for the sandbox (not your personal keys), to limit blast radius and simplify rotation.
+
+**Configuration format:**
+
+```yaml
+secrets:
+  NEXUS_USER:
+    source: gopass show ci/nexus/user    # any shell command; stdout = value
+  NEXUS_PASS:
+    source: gopass show ci/nexus/password
+  NPM_TOKEN:
+    source: sops -d --extract '["npm_token"]' secrets.enc.yaml
+
+targets:
+  - template: gradle-properties          # built-in template name
+    dest: /home/devuser/.gradle/gradle.properties
+    secrets:
+      - name: NEXUS_USER
+        as: nexusUser                    # alias for Gradle naming convention
+      - name: NEXUS_PASS
+        as: nexusPassword
+  - template: dotenv
+    dest: /workspace/.env.sandbox
+    secrets:
+      - NEXUS_USER                       # shorthand: no alias
+  - template: .sandbox-templates/npmrc.tpl  # custom template (relative to workspace)
+    dest: /home/devuser/.npmrc
+    secrets:
+      - name: NPM_TOKEN
+        as: authToken
+```
+
+**Host requirements:** `yq` (Go-based) and `jq` must be installed on the host:
+```bash
+brew install yq jq    # macOS
+apt install jq yq     # Debian/Ubuntu
+```
+
+**Security model:**
+- Secrets are resolved on the host (where gopass/sops/etc. live); never stored in the image
+- Resolved values pass into the container via a tmpfs-backed file, wiped from the host filesystem before `docker run`
+- Inside the container, `render-credentials.sh` renders templates and wipes the payload before the agent starts
+- Rendered credential files are `root:devuser 0444` — readable by tools (Gradle, npm) but not modifiable by the agent
+- Auto-generated deny rules in `settings.json` block the agent from reading them via Claude Code's Read tool or `cat`
+
+**Built-in templates** (in `/usr/local/share/sandbox-templates/`):
+
+| Template name | Format | Expected secret names |
+|---|---|---|
+| `gradle-properties` | Java `.properties` (key=value) | any (iterates all) |
+| `dotenv` | Shell `.env` (KEY="value") | any (iterates all) |
+| `npmrc` | npm auth config | `authToken` (required), `registry` (optional) |
+| `netrc` | netrc machine/login/password | `machine`, `login`, `password` (all required) |
+
+Custom templates can be placed in `.sandbox-templates/` in the workspace and referenced by name, or by path relative to workspace root (e.g. `.sandbox-templates/myfile.tpl`).
 
 ### Container Reuse
 
