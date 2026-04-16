@@ -27,7 +27,7 @@ bin/code-sandbox --enable-docker -- claude -p "run the tests" --max-turns 30
 # Credentials: place .sandbox-secrets.yaml in the workspace to inject
 # sandbox-specific credentials. Resolved on host, wiped from container after placement.
 
-# Run security test suite (28 checks)
+# Run security test suite
 bash test-sandbox.sh
 
 # Run security tests including Docker-in-Docker checks
@@ -171,7 +171,7 @@ A `claude-state-home` Docker volume persists Claude auth and OpenCode credential
 
 ### Security Test Suite
 
-`test-sandbox.sh` runs 28 automated checks covering: settings lock enforcement, iptables rules, privilege escalation attempts, sensitive path exposure, and firewall bypass attempts. CI runs this on every push/PR via `.github/workflows/security-tests.yml`.
+`test-sandbox.sh` runs automated checks covering: settings lock enforcement, iptables rules, privilege escalation attempts, sensitive path exposure, firewall bypass attempts, and credential injection. CI runs this on every push/PR via `.github/workflows/security-tests.yml`.
 
 ## Commit Convention
 
