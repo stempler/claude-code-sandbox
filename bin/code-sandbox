@@ -89,6 +89,11 @@ resolve_credentials() {
         echo "[code-sandbox]   Install: brew install yq  OR  snap install yq  OR  go install github.com/mikefarah/yq/v4@latest"
         exit 1
     fi
+    if ! command -v jq > /dev/null 2>&1; then
+        echo "[code-sandbox] ERROR: 'jq' is required for .sandbox-secrets.yaml but not found."
+        echo "[code-sandbox]   Install: brew install jq  OR  apt install jq"
+        exit 1
+    fi
 
     CRED_TMPDIR=$(mktemp -d)
 
@@ -98,14 +103,22 @@ resolve_credentials() {
 
     local secrets_json="{}"
     while IFS= read -r name; do
+        # Skip empty lines (e.g. when secrets block is empty)
+        [ -n "$name" ] || continue
         local source_cmd
-        source_cmd=$(yq ".secrets.${name}.source" "$SANDBOX_CREDENTIALS_FILE")
-        local value
-        value=$(bash -c "$source_cmd" 2>&1) || {
-            echo "[code-sandbox] ERROR: credential source for '$name' failed (exit $?):"
+        # Use bracket notation to handle key names containing dots or hyphens
+        source_cmd=$(yq ".secrets[\"${name}\"].source" "$SANDBOX_CREDENTIALS_FILE")
+        local value err_output
+        err_output=$(mktemp)
+        value=$(bash -c "$source_cmd" 2>"$err_output") || {
+            local exit_code=$?
+            echo "[code-sandbox] ERROR: credential source for '$name' failed (exit $exit_code):"
             echo "[code-sandbox]   Command: $source_cmd"
+            [ -s "$err_output" ] && echo "[code-sandbox]   Output: $(cat "$err_output")"
+            rm -f "$err_output"
             exit 1
         }
+        rm -f "$err_output"
         # Trim trailing newlines
         value=$(printf '%s' "$value" | tr -d '\n')
         secrets_json=$(printf '%s' "$secrets_json" | jq --arg k "$name" --arg v "$value" '. + {($k): $v}')
@@ -221,5 +234,8 @@ if [ -t 0 ] && [ -t 1 ]; then
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────
+# Clean up credential temp files before exec (exec replaces the shell so EXIT
+# traps don't fire — plaintext secrets must not persist on the host filesystem)
+_cred_cleanup
 echo "[code-sandbox] Starting sandbox in: $WORKSPACE_DIR"
 exec docker run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CMD[@]}"
