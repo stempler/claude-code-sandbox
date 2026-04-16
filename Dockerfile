@@ -65,6 +65,7 @@ RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /u
 # ── gomplate (template engine for secret injection) ──────────────────────────
 RUN curl -fsSL https://github.com/hairyhenderson/gomplate/releases/download/v4.3.0/gomplate_linux-amd64 \
     -o /usr/local/bin/gomplate \
+    && echo "8adb82e5be7dfde49857ebd7c948fd8f9b10cdcdb13f71b74685dff6e6756890  /usr/local/bin/gomplate" | sha256sum -c - \
     && chmod 755 /usr/local/bin/gomplate
 
 # Config: copy the config/ tree (mirrors home dir) to the user home AND to a
