@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# render-secrets.sh — Container-side secret rendering
+# render-credentials.sh — Container-side credential rendering
 #
 # Runs as root at container startup, BEFORE gosu drops to devuser.
 # Reads /run/sandbox-secrets/payload.json, renders gomplate templates for each
@@ -39,15 +39,21 @@ PAYLOAD=/run/sandbox-secrets/payload.json
 BUILTIN_TEMPLATES=/usr/local/share/sandbox-templates
 WORKSPACE_TEMPLATES=/workspace/.sandbox-templates
 
-# Ensure ctx files are wiped even on unexpected exit (e.g. jq failure mid-loop)
-trap 'rm -f /run/sandbox-secrets/ctx-*.json' EXIT
+# Ensure all secret material is wiped even on unexpected exit (e.g. jq failure mid-loop)
+trap 'rm -f /run/sandbox-secrets/ctx-*.json "$PAYLOAD"' EXIT
 
 # -- Guard: skip silently if no payload -------------------------------------
 if [ ! -f "$PAYLOAD" ]; then
     exit 0
 fi
 
-echo "[render-secrets] Processing secret payload..."
+# Verify gomplate is available before attempting any renders
+if ! command -v gomplate > /dev/null 2>&1; then
+    echo "[render-credentials] ERROR: gomplate not found; cannot render credentials"
+    exit 1
+fi
+
+echo "[render-credentials] Processing credential payload..."
 
 # Read full payload once into a variable for repeated jq use
 payload_json=$(cat "$PAYLOAD")
@@ -56,7 +62,7 @@ payload_json=$(cat "$PAYLOAD")
 count=$(printf '%s' "$payload_json" | jq '.targets | length')
 
 if [ "$count" -eq 0 ]; then
-    echo "[render-secrets] No targets defined; nothing to render."
+    echo "[render-credentials] No targets defined; nothing to render."
     rm -f "$PAYLOAD"
     exit 0
 fi
@@ -65,6 +71,20 @@ fi
 for i in $(seq 0 $((count - 1))); do
     template_name=$(printf '%s' "$payload_json" | jq -r ".targets[$i].template")
     dest=$(printf '%s' "$payload_json" | jq -r ".targets[$i].dest")
+
+    # Validate required fields and dest path safety
+    if [[ "$dest" == "null" || -z "$dest" ]]; then
+        echo "[render-credentials] ERROR: target $i is missing required 'dest' field"
+        exit 1
+    fi
+    if [[ "$template_name" == "null" || -z "$template_name" ]]; then
+        echo "[render-credentials] ERROR: target $i is missing required 'template' field"
+        exit 1
+    fi
+    if [[ "$dest" != /* ]]; then
+        echo "[render-credentials] ERROR: target $i 'dest' must be an absolute path (got: $dest)"
+        exit 1
+    fi
 
     # 1. Build per-target context JSON
     ctx_file="/run/sandbox-secrets/ctx-${i}.json"
@@ -78,9 +98,17 @@ for i in $(seq 0 $((count - 1))); do
           {};
           . + (
             if ($entry | type) == "string" then
-              {($entry): $all_secrets[$entry]}
+              if $all_secrets[$entry] == null then
+                error("secret '\($entry)' referenced in target but not defined in secrets map")
+              else
+                {($entry): $all_secrets[$entry]}
+              end
             else
-              {($entry.as): $all_secrets[$entry.name]}
+              if $all_secrets[$entry.name] == null then
+                error("secret '\($entry.name)' referenced in target but not defined in secrets map")
+              else
+                {($entry.as): $all_secrets[$entry.name]}
+              end
             end
           )
         ))}
@@ -92,7 +120,7 @@ for i in $(seq 0 $((count - 1))); do
         # Custom path: treat as relative to /workspace
         template_path="/workspace/$template_name"
         if [ ! -f "$template_path" ]; then
-            echo "[render-secrets] ERROR: Custom template not found: $template_path"
+            echo "[render-credentials] ERROR: Custom template not found: $template_path"
             exit 1
         fi
     else
@@ -104,9 +132,9 @@ for i in $(seq 0 $((count - 1))); do
         elif [ -f "$builtin_tpl" ]; then
             template_path="$builtin_tpl"
         else
-            echo "[render-secrets] ERROR: Template '$template_name' not found."
-            echo "[render-secrets]   Tried: $workspace_tpl"
-            echo "[render-secrets]   Tried: $builtin_tpl"
+            echo "[render-credentials] ERROR: Template '$template_name' not found."
+            echo "[render-credentials]   Tried: $workspace_tpl"
+            echo "[render-credentials]   Tried: $builtin_tpl"
             exit 1
         fi
     fi
@@ -119,7 +147,7 @@ for i in $(seq 0 $((count - 1))); do
             -d "ctx=file://${ctx_file}?type=application/json" \
             -f "$template_path" \
             -o "$dest"; then
-        echo "[render-secrets] ERROR: gomplate failed for target $i (template=$template_name dest=$dest)"
+        echo "[render-credentials] ERROR: gomplate failed for target $i (template=$template_name dest=$dest)"
         exit 1
     fi
 
@@ -127,7 +155,7 @@ for i in $(seq 0 $((count - 1))); do
     chown root:devuser "$dest"
     chmod 0444 "$dest"
 
-    echo "[render-secrets] Rendered: $template_name -> $dest"
+    echo "[render-credentials] Rendered: $template_name -> $dest"
 done
 
 # -- Wipe all secret material -----------------------------------------------
@@ -136,4 +164,4 @@ done
 rm -f /run/sandbox-secrets/ctx-*.json
 rm -f "$PAYLOAD"
 
-echo "[render-secrets] Secret material wiped."
+echo "[render-credentials] Secret material wiped."
