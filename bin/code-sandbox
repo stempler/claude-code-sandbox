@@ -41,6 +41,7 @@ ENTRYPOINT_OVERRIDE=""
 # Deterministic container name based on workspace path (allows reuse detection)
 CONTAINER_NAME="claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)"
 SANDBOX_DOMAINS_FILE="$WORKSPACE_DIR/.sandbox-domains"
+SANDBOX_CREDENTIALS_FILE="$WORKSPACE_DIR/.sandbox-secrets.yaml"
 
 # ── Parse flags ─────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -74,6 +75,68 @@ done
 
 # Remaining arguments are the container command; default to bash
 CMD=("${@:-bash}")
+
+# ── Credential resolver ──────────────────────────────────────────────────────
+CRED_TMPDIR=""
+_cred_cleanup() { [ -n "$CRED_TMPDIR" ] && rm -rf "$CRED_TMPDIR"; }
+trap _cred_cleanup EXIT
+
+resolve_credentials() {
+    [ -f "$SANDBOX_CREDENTIALS_FILE" ] || return 0
+
+    if ! command -v yq > /dev/null 2>&1; then
+        echo "[code-sandbox] ERROR: 'yq' is required for .sandbox-secrets.yaml but not found."
+        echo "[code-sandbox]   Install: brew install yq  OR  snap install yq  OR  go install github.com/mikefarah/yq/v4@latest"
+        exit 1
+    fi
+
+    CRED_TMPDIR=$(mktemp -d)
+
+    # Resolve each secret by executing its source command on the host
+    local secret_names
+    secret_names=$(yq '.secrets | keys | .[]' "$SANDBOX_CREDENTIALS_FILE")
+
+    local secrets_json="{}"
+    while IFS= read -r name; do
+        local source_cmd
+        source_cmd=$(yq ".secrets.${name}.source" "$SANDBOX_CREDENTIALS_FILE")
+        local value
+        value=$(bash -c "$source_cmd" 2>&1) || {
+            echo "[code-sandbox] ERROR: credential source for '$name' failed (exit $?):"
+            echo "[code-sandbox]   Command: $source_cmd"
+            exit 1
+        }
+        # Trim trailing newlines
+        value=$(printf '%s' "$value" | tr -d '\n')
+        secrets_json=$(printf '%s' "$secrets_json" | jq --arg k "$name" --arg v "$value" '. + {($k): $v}')
+    done <<< "$secret_names"
+
+    # Convert targets YAML to JSON (yq handles mixed string/object entries natively)
+    local targets_json
+    targets_json=$(yq -o=json '.targets' "$SANDBOX_CREDENTIALS_FILE")
+
+    # Write payload.json
+    jq -n --argjson s "$secrets_json" --argjson t "$targets_json" \
+       '{"secrets": $s, "targets": $t}' > "$CRED_TMPDIR/payload.json"
+
+    # Build deny-rules.json — prevent Claude from reading injected secret files
+    local deny_rules
+    deny_rules=$(printf '%s' "$targets_json" | jq '[.[].dest | . as $d | ["Read(\($d))", "Bash(cat \($d)*)"] | .[]] | unique')
+    printf '%s' "$deny_rules" > "$CRED_TMPDIR/deny-rules.json"
+
+    # Mount the credential payload into the container via tmpfs
+    DOCKER_ARGS+=(
+        --mount "type=tmpfs,destination=/run/sandbox-secrets,tmpfs-mode=0700,tmpfs-size=1048576"
+        -v "$CRED_TMPDIR/payload.json:/run/sandbox-secrets/payload.json:ro"
+        -v "$CRED_TMPDIR/deny-rules.json:/run/sandbox-secrets/deny-rules.json:ro"
+        -e SANDBOX_CREDENTIALS=true
+    )
+
+    local secret_count target_count
+    secret_count=$(printf '%s' "$secrets_json" | jq 'length')
+    target_count=$(printf '%s' "$targets_json" | jq 'length')
+    echo "[code-sandbox] Resolved $secret_count credential(s) for $target_count target(s)"
+}
 
 # ── Build image ──────────────────────────────────────────────────────────────
 if ! $SKIP_BUILD; then
@@ -143,6 +206,9 @@ if [ -f "$SANDBOX_DOMAINS_FILE" ]; then
         DOCKER_ARGS+=(-e "EXTRA_ALLOWED_DOMAINS=$EXTRA_DOMAINS")
     fi
 fi
+
+# ── Project-specific credential injection ───────────────────────────────────
+resolve_credentials
 
 if [ -n "$ENTRYPOINT_OVERRIDE" ]; then
     DOCKER_ARGS+=(--entrypoint "$ENTRYPOINT_OVERRIDE")
