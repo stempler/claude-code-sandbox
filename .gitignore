@@ -1,1 +1,3 @@
 .worktrees/
+# Per-project credential config (may reference sensitive source commands)
+.sandbox-secrets.yaml

@@ -159,8 +159,9 @@ for i in $(seq 0 $((count - 1))); do
 done
 
 # -- Wipe all secret material -----------------------------------------------
-# Remove per-target context files and the payload; leave the directory intact
-# (lock-settings.sh may place deny-rules.json there later).
+# Remove per-target context files and the payload.
+# deny-rules.json is intentionally left — it contains no secret values and
+# was already consumed by lock-settings.sh, which ran before this script.
 rm -f /run/sandbox-secrets/ctx-*.json
 rm -f "$PAYLOAD"
 

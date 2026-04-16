@@ -119,7 +119,8 @@ resolve_credentials() {
             exit 1
         }
         rm -f "$err_output"
-        # Trim trailing newlines
+        # Trim all newlines (embedded newlines are also removed).
+        # Note: multi-line values such as PEM keys are not supported.
         value=$(printf '%s' "$value" | tr -d '\n')
         secrets_json=$(printf '%s' "$secrets_json" | jq --arg k "$name" --arg v "$value" '. + {($k): $v}')
     done <<< "$secret_names"
@@ -134,7 +135,15 @@ resolve_credentials() {
 
     # Build deny-rules.json — prevent Claude from reading injected secret files
     local deny_rules
-    deny_rules=$(printf '%s' "$targets_json" | jq '[.[].dest | . as $d | ["Read(\($d))", "Bash(cat \($d)*)"] | .[]] | unique')
+    deny_rules=$(printf '%s' "$targets_json" | jq '[.[].dest | . as $d | [
+        "Read(\($d))",
+        "Bash(cat \($d)*)",
+        "Bash(grep * \($d)*)",
+        "Bash(head * \($d)*)",
+        "Bash(tail * \($d)*)",
+        "Bash(python * \($d)*)",
+        "Bash(python3 * \($d)*)"
+    ] | .[]] | unique')
     printf '%s' "$deny_rules" > "$CRED_TMPDIR/deny-rules.json"
 
     # Mount the credential payload into the container via tmpfs
@@ -167,6 +176,8 @@ GIT_USER_EMAIL="$(git config user.email 2>/dev/null || echo "claude-sandbox@loca
 if [ -z "$ENTRYPOINT_OVERRIDE" ] && \
    docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
     echo "[claude-sandbox] Attaching to running container for: $WORKSPACE_DIR"
+    [ -f "$SANDBOX_CREDENTIALS_FILE" ] && \
+        echo "[code-sandbox] NOTE: reusing existing container — credential changes in .sandbox-secrets.yaml are not applied until the container is recreated."
     EXEC_ARGS=(-it --user devuser -w /workspace)
     EXEC_ARGS+=(-e TERM="${TERM:-xterm-256color}")
     EXEC_ARGS+=(-e GIT_AUTHOR_NAME="$GIT_USER_NAME")
