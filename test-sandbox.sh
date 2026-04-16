@@ -357,6 +357,82 @@ else
     echo "TEST_INIT_SCRIPTS_RO=PASS"
 fi
 
+# ── Credential injection: render-credentials.sh ──────────────────────────────
+mkdir -p /run/sandbox-secrets
+
+# C1: Valid payload renders to correct content (with aliasing)
+cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+{"secrets":{"GRAD_USER":"alice","GRAD_PASS":"s3cr3t"},"targets":[{"template":"gradle-properties","dest":"/tmp/test-creds.properties","secrets":[{"name":"GRAD_USER","as":"nexusUser"},{"name":"GRAD_PASS","as":"nexusPassword"}]}]}
+PAYLOAD
+
+RENDER_RC=0
+/usr/local/bin/render-credentials.sh > /dev/null 2>&1 || RENDER_RC=$?
+if [ $RENDER_RC -eq 0 ] && \
+   grep -q "nexusUser=alice" /tmp/test-creds.properties 2>/dev/null && \
+   grep -q "nexusPassword=s3cr3t" /tmp/test-creds.properties 2>/dev/null; then
+    echo "TEST_CRED_RENDER_CONTENT=PASS"
+else
+    echo "TEST_CRED_RENDER_CONTENT=FAIL (rc=$RENDER_RC content=$(cat /tmp/test-creds.properties 2>/dev/null || echo 'missing'))"
+fi
+
+# C2: Rendered file has correct permissions (root:devuser 0444)
+PERMS=$(stat -c "%a" /tmp/test-creds.properties 2>/dev/null || echo "MISSING")
+OWNER=$(stat -c "%U:%G" /tmp/test-creds.properties 2>/dev/null || echo "MISSING")
+if [ "$PERMS" = "444" ] && [ "$OWNER" = "root:devuser" ]; then
+    echo "TEST_CRED_FILE_PERMS=PASS"
+else
+    echo "TEST_CRED_FILE_PERMS=FAIL (perms=$PERMS owner=$OWNER)"
+fi
+
+# C3: Payload wiped after successful render
+if [ ! -f /run/sandbox-secrets/payload.json ]; then
+    echo "TEST_CRED_PAYLOAD_WIPED=PASS"
+else
+    echo "TEST_CRED_PAYLOAD_WIPED=FAIL (payload.json still present after render)"
+fi
+
+# C4: Rendered file is immutable (devuser cannot write to it)
+if ! gosu devuser bash -c "echo hack >> /tmp/test-creds.properties" 2>/dev/null; then
+    echo "TEST_CRED_FILE_IMMUTABLE=PASS"
+else
+    echo "TEST_CRED_FILE_IMMUTABLE=FAIL (devuser could write to credential file)"
+fi
+
+# C5: Deny rules are merged into settings.json by lock-settings.sh
+cat > /run/sandbox-secrets/deny-rules.json <<'DENY'
+["Read(/tmp/test-deny-sentinel)", "Bash(cat /tmp/test-deny-sentinel*)"]
+DENY
+/usr/local/bin/lock-settings.sh > /dev/null 2>&1
+if jq -e '.permissions.deny | contains(["Read(/tmp/test-deny-sentinel)"])' \
+        /home/devuser/.claude/settings.json > /dev/null 2>&1; then
+    echo "TEST_CRED_DENY_RULES_MERGED=PASS"
+else
+    echo "TEST_CRED_DENY_RULES_MERGED=FAIL"
+fi
+rm -f /run/sandbox-secrets/deny-rules.json
+
+# C6: Missing template causes non-zero exit
+cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+{"secrets":{"K":"v"},"targets":[{"template":"no-such-template","dest":"/tmp/x.txt"}]}
+PAYLOAD
+if ! /usr/local/bin/render-credentials.sh > /dev/null 2>&1; then
+    echo "TEST_CRED_MISSING_TEMPLATE=PASS"
+else
+    echo "TEST_CRED_MISSING_TEMPLATE=FAIL (should have failed)"
+fi
+rm -f /run/sandbox-secrets/payload.json /run/sandbox-secrets/ctx-*.json
+
+# C7: Referencing undefined secret key causes non-zero exit
+cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+{"secrets":{"EXISTS":"val"},"targets":[{"template":"dotenv","dest":"/tmp/y.env","secrets":["NO_SUCH_KEY"]}]}
+PAYLOAD
+if ! /usr/local/bin/render-credentials.sh > /dev/null 2>&1; then
+    echo "TEST_CRED_MISSING_SECRET_REF=PASS"
+else
+    echo "TEST_CRED_MISSING_SECRET_REF=FAIL (should have failed)"
+fi
+rm -f /run/sandbox-secrets/payload.json /run/sandbox-secrets/ctx-*.json
+
 echo "=== END TESTS ==="
 ' 2>&1)
 
