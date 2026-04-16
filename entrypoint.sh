@@ -100,6 +100,12 @@ fi
 echo "[entrypoint] Locking agent permissions..."
 /usr/local/bin/lock-settings.sh
 
+# ── Render injected credentials ────────────────────────────────────────
+if [ "${SANDBOX_CREDENTIALS:-}" = "true" ] && [ -f /run/sandbox-secrets/payload.json ]; then
+    echo "[entrypoint] Rendering sandbox credentials..."
+    /usr/local/bin/render-credentials.sh
+fi
+
 # ── Initialize egress firewall ─────────────────────────────────────────────
 echo "[entrypoint] Setting up egress firewall..."
 /usr/local/bin/init-firewall.sh

@@ -53,3 +53,20 @@ chmod 0444 "$SETTINGS_LOCAL"
 
 echo "[lock-settings] All config files restored from image and locked (root-owned, read-only)"
 echo "[lock-settings] settings.local.json claimed and locked (prevents override attack)"
+
+# ── Merge credential deny rules (if present) ──────────────────────────
+# When .sandbox-secrets.yaml is configured, bin/code-sandbox generates a
+# deny-rules.json array of Read/Bash deny patterns for each credential
+# destination path. Merge these into settings.json before locking so the
+# agent cannot read the injected credential files.
+CRED_DENY="/run/sandbox-secrets/deny-rules.json"
+if [ -f "$CRED_DENY" ]; then
+    SETTINGS="$CLAUDE_DIR/settings.json"
+    chmod 0644 "$SETTINGS"
+    jq --slurpfile extra "$CRED_DENY" \
+       '.permissions.deny += $extra[0]' "$SETTINGS" > "${SETTINGS}.tmp"
+    mv "${SETTINGS}.tmp" "$SETTINGS"
+    chown root:devuser "$SETTINGS"
+    chmod 0444 "$SETTINGS"
+    echo "[lock-settings] Merged $(jq 'length' "$CRED_DENY") credential deny rules into settings.json"
+fi
