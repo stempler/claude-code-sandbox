@@ -59,8 +59,8 @@ COPY init-firewall.sh    /usr/local/bin/init-firewall.sh
 COPY lock-settings.sh   /usr/local/bin/lock-settings.sh
 COPY entrypoint.sh      /usr/local/bin/entrypoint.sh
 COPY proxy-log.sh       /usr/local/bin/proxy-log
-COPY render-secrets.sh  /usr/local/bin/render-secrets.sh
-RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log /usr/local/bin/render-secrets.sh
+COPY render-credentials.sh  /usr/local/bin/render-credentials.sh
+RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log /usr/local/bin/render-credentials.sh
 
 # ── gomplate (template engine for secret injection) ──────────────────────────
 RUN curl -fsSL https://github.com/hairyhenderson/gomplate/releases/download/v4.3.0/gomplate_linux-amd64 \
