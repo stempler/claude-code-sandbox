@@ -39,6 +39,9 @@ PAYLOAD=/run/sandbox-secrets/payload.json
 BUILTIN_TEMPLATES=/usr/local/share/sandbox-templates
 WORKSPACE_TEMPLATES=/workspace/.sandbox-templates
 
+# Ensure ctx files are wiped even on unexpected exit (e.g. jq failure mid-loop)
+trap 'rm -f /run/sandbox-secrets/ctx-*.json' EXIT
+
 # -- Guard: skip silently if no payload -------------------------------------
 if [ ! -f "$PAYLOAD" ]; then
     exit 0
