@@ -78,7 +78,7 @@ CMD=("${@:-bash}")
 
 # ── Credential resolver ──────────────────────────────────────────────────────
 CRED_TMPDIR=""
-_cred_cleanup() { [ -n "$CRED_TMPDIR" ] && rm -rf "$CRED_TMPDIR"; }
+_cred_cleanup() { [ -n "$CRED_TMPDIR" ] && rm -rf "$CRED_TMPDIR"; return 0; }
 trap _cred_cleanup EXIT
 
 resolve_credentials() {

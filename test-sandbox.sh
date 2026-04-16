@@ -361,7 +361,7 @@ fi
 mkdir -p /run/sandbox-secrets
 
 # C1: Valid payload renders to correct content (with aliasing)
-cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+cat > /run/sandbox-secrets/payload.json <<PAYLOAD
 {"secrets":{"GRAD_USER":"alice","GRAD_PASS":"s3cr3t"},"targets":[{"template":"gradle-properties","dest":"/tmp/test-creds.properties","secrets":[{"name":"GRAD_USER","as":"nexusUser"},{"name":"GRAD_PASS","as":"nexusPassword"}]}]}
 PAYLOAD
 
@@ -372,7 +372,7 @@ if [ $RENDER_RC -eq 0 ] && \
    grep -q "nexusPassword=s3cr3t" /tmp/test-creds.properties 2>/dev/null; then
     echo "TEST_CRED_RENDER_CONTENT=PASS"
 else
-    echo "TEST_CRED_RENDER_CONTENT=FAIL (rc=$RENDER_RC content=$(cat /tmp/test-creds.properties 2>/dev/null || echo 'missing'))"
+    echo "TEST_CRED_RENDER_CONTENT=FAIL (rc=$RENDER_RC content=$(cat /tmp/test-creds.properties 2>/dev/null || echo missing))"
 fi
 
 # C2: Rendered file has correct permissions (root:devuser 0444)
@@ -399,11 +399,11 @@ else
 fi
 
 # C5: Deny rules are merged into settings.json by lock-settings.sh
-cat > /run/sandbox-secrets/deny-rules.json <<'DENY'
+cat > /run/sandbox-secrets/deny-rules.json <<DENY
 ["Read(/tmp/test-deny-sentinel)", "Bash(cat /tmp/test-deny-sentinel*)"]
 DENY
 /usr/local/bin/lock-settings.sh > /dev/null 2>&1
-if jq -e '.permissions.deny | contains(["Read(/tmp/test-deny-sentinel)"])' \
+if jq -e ".permissions.deny | contains([\"Read(/tmp/test-deny-sentinel)\"])" \
         /home/devuser/.claude/settings.json > /dev/null 2>&1; then
     echo "TEST_CRED_DENY_RULES_MERGED=PASS"
 else
@@ -412,7 +412,7 @@ fi
 rm -f /run/sandbox-secrets/deny-rules.json
 
 # C6: Missing template causes non-zero exit
-cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+cat > /run/sandbox-secrets/payload.json <<PAYLOAD
 {"secrets":{"K":"v"},"targets":[{"template":"no-such-template","dest":"/tmp/x.txt"}]}
 PAYLOAD
 if ! /usr/local/bin/render-credentials.sh > /dev/null 2>&1; then
@@ -423,7 +423,7 @@ fi
 rm -f /run/sandbox-secrets/payload.json /run/sandbox-secrets/ctx-*.json
 
 # C7: Referencing undefined secret key causes non-zero exit
-cat > /run/sandbox-secrets/payload.json <<'PAYLOAD'
+cat > /run/sandbox-secrets/payload.json <<PAYLOAD
 {"secrets":{"EXISTS":"val"},"targets":[{"template":"dotenv","dest":"/tmp/y.env","secrets":["NO_SUCH_KEY"]}]}
 PAYLOAD
 if ! /usr/local/bin/render-credentials.sh > /dev/null 2>&1; then
