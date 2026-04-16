@@ -99,13 +99,13 @@ for i in $(seq 0 $((count - 1))); do
           . + (
             if ($entry | type) == "string" then
               if $all_secrets[$entry] == null then
-                error("secret '\($entry)' referenced in target but not defined in secrets map")
+                error("secret \($entry) referenced in target but not defined in secrets map")
               else
                 {($entry): $all_secrets[$entry]}
               end
             else
               if $all_secrets[$entry.name] == null then
-                error("secret '\($entry.name)' referenced in target but not defined in secrets map")
+                error("secret \($entry.name) referenced in target but not defined in secrets map")
               else
                 {($entry.as): $all_secrets[$entry.name]}
               end
