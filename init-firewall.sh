@@ -74,6 +74,8 @@ DEFAULT_DOMAINS=(
     .dl.k8s.io
     .mise-versions.jdx.dev
     .releases.hashicorp.com
+    # Added by firewall-allow (2026-04-23)
+    .mise-java.jdx.dev
 )
 
 ###############################################################################
