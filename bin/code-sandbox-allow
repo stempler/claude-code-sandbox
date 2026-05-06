@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 ###############################################################################
-# bin/firewall-allow — Add domains to the sandbox firewall allowlist
+# bin/code-sandbox-allow — Add domains to the sandbox firewall allowlist
 #
 # Usage:
-#   firewall-allow [domain ...]
+#   code-sandbox-allow [domain ...]
 #
 # Mode 1 (explicit domains):
-#   firewall-allow example.com other.org
+#   code-sandbox-allow example.com other.org
 #   Prompts for each domain: default allowlist, project allowlist, or skip.
 #
 # Mode 2 (from denied log):
-#   firewall-allow
+#   code-sandbox-allow
 #   Parses TCP_DENIED entries from the running container's Squid log,
 #   extracts unique denied domains, and prompts for each.
 #
@@ -104,18 +104,18 @@ if [ $# -gt 0 ]; then
 else
     # Mode 2: parse the running container's Squid log
     if ! docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
-        echo "[firewall-allow] No running container found for: $WORKSPACE_DIR" >&2
-        echo "[firewall-allow] Start the sandbox first, or pass domains explicitly:" >&2
-        echo "[firewall-allow]   firewall-allow example.com" >&2
+        echo "[code-sandbox-allow] No running container found for: $WORKSPACE_DIR" >&2
+        echo "[code-sandbox-allow] Start the sandbox first, or pass domains explicitly:" >&2
+        echo "[code-sandbox-allow]   code-sandbox-allow example.com" >&2
         exit 1
     fi
 
-    echo "[firewall-allow] Reading denied requests from container proxy log..."
+    echo "[code-sandbox-allow] Reading denied requests from container proxy log..."
     RAW_DENIED=$(docker exec "$CONTAINER_NAME" \
         grep "TCP_DENIED" /var/log/squid/access.log 2>/dev/null || true)
 
     if [ -z "$RAW_DENIED" ]; then
-        echo "[firewall-allow] No denied requests found in proxy log."
+        echo "[code-sandbox-allow] No denied requests found in proxy log."
         exit 0
     fi
 
@@ -129,7 +129,7 @@ else
 fi
 
 if [ ${#DOMAINS[@]} -eq 0 ]; then
-    echo "[firewall-allow] No domains to process."
+    echo "[code-sandbox-allow] No domains to process."
     exit 0
 fi
 
@@ -144,26 +144,26 @@ for d in "${DOMAINS[@]}"; do
     # Skip IP addresses (strip leading dot for check)
     bare="${d#.}"
     if is_ip_address "$bare"; then
-        echo "[firewall-allow] Skipping IP address: $bare"
+        echo "[code-sandbox-allow] Skipping IP address: $bare"
         continue
     fi
     if is_already_allowed "$d"; then
-        echo "[firewall-allow] Already allowed: $d ($IS_ALLOWED_SOURCE)"
+        echo "[code-sandbox-allow] Already allowed: $d ($IS_ALLOWED_SOURCE)"
         continue
     fi
     PENDING+=("$d")
 done
 
 if [ ${#PENDING[@]} -eq 0 ]; then
-    echo "[firewall-allow] All domains are already allowed."
+    echo "[code-sandbox-allow] All domains are already allowed."
     exit 0
 fi
 
 # ── Phase C: Interactive prompts ─────────────────────────────────────────────
 
 if [ ! -t 0 ]; then
-    echo "[firewall-allow] Interactive mode requires a TTY." >&2
-    echo "[firewall-allow] Pass domains explicitly to use in non-interactive contexts." >&2
+    echo "[code-sandbox-allow] Interactive mode requires a TTY." >&2
+    echo "[code-sandbox-allow] Pass domains explicitly to use in non-interactive contexts." >&2
     exit 1
 fi
 
@@ -208,12 +208,12 @@ echo ""
 # Default allowlist: insert into init-firewall.sh DEFAULT_DOMAINS array
 if [ ${#DEFAULT_ADD[@]} -gt 0 ]; then
     if [ ! -f "$INIT_FIREWALL" ]; then
-        echo "[firewall-allow] ERROR: cannot find $INIT_FIREWALL" >&2
+        echo "[code-sandbox-allow] ERROR: cannot find $INIT_FIREWALL" >&2
         exit 1
     fi
 
     # Build the insertion block
-    INSERT_BLOCK="    # Added by firewall-allow ($(date +%Y-%m-%d))"
+    INSERT_BLOCK="    # Added by code-sandbox-allow ($(date +%Y-%m-%d))"
     for d in "${DEFAULT_ADD[@]}"; do
         INSERT_BLOCK+=$'\n'"    $d"
     done
@@ -228,7 +228,7 @@ if [ ${#DEFAULT_ADD[@]} -gt 0 ]; then
         { print }
     ' "$INIT_FIREWALL" > "${INIT_FIREWALL}.tmp"
     mv "${INIT_FIREWALL}.tmp" "$INIT_FIREWALL"
-    echo "[firewall-allow] Updated $INIT_FIREWALL (+${#DEFAULT_ADD[@]} domains)"
+    echo "[code-sandbox-allow] Updated $INIT_FIREWALL (+${#DEFAULT_ADD[@]} domains)"
 fi
 
 # Project allowlist: append to .sandbox-domains
@@ -244,12 +244,12 @@ if [ ${#PROJECT_ADD[@]} -gt 0 ]; then
 EOF
     fi
     {
-        echo "# Added by firewall-allow ($(date +%Y-%m-%d))"
+        echo "# Added by code-sandbox-allow ($(date +%Y-%m-%d))"
         printf '%s\n' "${PROJECT_ADD[@]}"
     } >> "$SANDBOX_DOMAINS_FILE"
-    echo "[firewall-allow] Updated .sandbox-domains (+${#PROJECT_ADD[@]} domains)"
+    echo "[code-sandbox-allow] Updated .sandbox-domains (+${#PROJECT_ADD[@]} domains)"
     if $SANDBOX_DOMAINS_CREATED; then
-        echo "[firewall-allow] Tip: add .sandbox-domains to your project's .gitignore"
+        echo "[code-sandbox-allow] Tip: add .sandbox-domains to your project's .gitignore"
     fi
 fi
 
@@ -260,7 +260,7 @@ ALL_NEW=("${DEFAULT_ADD[@]}" "${PROJECT_ADD[@]}")
 if [ ${#ALL_NEW[@]} -gt 0 ] && \
    docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
 
-    echo "[firewall-allow] Hot-reloading Squid in running container..."
+    echo "[code-sandbox-allow] Hot-reloading Squid in running container..."
 
     for d in "${ALL_NEW[@]}"; do
         # Insert new ACL line before "acl CONNECT method CONNECT"
@@ -271,12 +271,12 @@ if [ ${#ALL_NEW[@]} -gt 0 ] && \
 
     # Reconfigure Squid — reads the updated conf without dropping connections
     docker exec "$CONTAINER_NAME" squid -k reconfigure
-    echo "[firewall-allow] Squid reloaded — new domains are active immediately"
+    echo "[code-sandbox-allow] Squid reloaded — new domains are active immediately"
 fi
 
 # ── Phase F: Summary ─────────────────────────────────────────────────────────
 
-echo "[firewall-allow] Done."
+echo "[code-sandbox-allow] Done."
 
 if [ ${#DEFAULT_ADD[@]} -gt 0 ]; then
     if docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q . 2>/dev/null; then
