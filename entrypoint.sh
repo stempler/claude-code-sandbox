@@ -110,19 +110,15 @@ fi
 echo "[entrypoint] Setting up egress firewall..."
 /usr/local/bin/init-firewall.sh
 
-# Export proxy env vars so gosu-launched devuser inherits them.
-# Both lower and upper case are needed — different tools check different cases.
-# no_proxy excludes localhost to prevent a proxy loop (devuser → :3128 → :3128).
-export http_proxy=http://localhost:3128
-export https_proxy=http://localhost:3128
-export HTTP_PROXY=http://localhost:3128
-export HTTPS_PROXY=http://localhost:3128
-export no_proxy=localhost,127.0.0.1
-export NO_PROXY=localhost,127.0.0.1
-
-# Write proxy vars to /etc/environment so that docker exec sessions and tools
-# that read system-wide env (rather than inheriting from the entrypoint process)
-# also pick them up automatically.
+# /etc/environment is the single source of truth for sandbox-managed env vars.
+# - Original (docker run) session: sourced here so `exec gosu devuser` propagates
+#   them via execve into the devuser shell.
+# - Attached (docker exec) session: sourced by /usr/local/bin/sandbox-exec, which
+#   is used as the exec target by bin/code-sandbox for container-reuse attaches.
+# Both lower- and upper-case proxy vars are written; different tools check different
+# cases. no_proxy excludes localhost to prevent a proxy loop (devuser → :3128 → :3128).
+# Format constraint: values must be shell-safe (no spaces, quotes, or expansions)
+# so both `source` and PAM accept them.
 cat > /etc/environment <<'EOF'
 http_proxy=http://localhost:3128
 https_proxy=http://localhost:3128
@@ -131,6 +127,9 @@ HTTPS_PROXY=http://localhost:3128
 no_proxy=localhost,127.0.0.1
 NO_PROXY=localhost,127.0.0.1
 EOF
+set -a
+. /etc/environment
+set +a
 
 # ── Verify API connectivity ────────────────────────────────────────────────
 # Any HTTP response (even 4xx) means TCP+TLS succeeded and the host is reachable.
@@ -192,20 +191,20 @@ mountopt = "nodev,noatime"
 STOR
     chown -R devuser:devuser /home/devuser/.config
 
-    # Export env vars for testcontainers and Docker CLI compatibility.
+    # Append DinD env to /etc/environment and source it, following the same
+    # single-source-of-truth pattern as the proxy vars above.
     # podman-docker provides /usr/bin/docker as a shim to podman.
-    # TESTCONTAINERS_RYUK_DISABLED: Ryuk (reaper) is not compatible with Podman
-    #   socket API, and is unnecessary since the sandbox is fully ephemeral.
-    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
-    export DOCKER_HOST="unix://$RUNTIME_DIR/podman/podman.sock"
-    export TESTCONTAINERS_RYUK_DISABLED=true
-
-    # Persist to /etc/environment so docker exec sessions pick them up too
+    # TESTCONTAINERS_RYUK_DISABLED: Ryuk is incompatible with Podman socket API
+    #   and is unnecessary in an ephemeral sandbox.
     cat >> /etc/environment <<EOF
+ENABLE_DOCKER=true
 XDG_RUNTIME_DIR=$RUNTIME_DIR
 DOCKER_HOST=unix://$RUNTIME_DIR/podman/podman.sock
 TESTCONTAINERS_RYUK_DISABLED=true
 EOF
+    set -a
+    . /etc/environment
+    set +a
 
     # Pre-create the socket directory — podman system service won't create it.
     mkdir -p "$RUNTIME_DIR/podman"
