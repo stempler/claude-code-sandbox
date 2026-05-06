@@ -76,6 +76,8 @@ DEFAULT_DOMAINS=(
     .releases.hashicorp.com
     # Added by firewall-allow (2026-04-23)
     .mise-java.jdx.dev
+    # Added by firewall-allow (2026-04-30)
+    .nodejs.org
 )
 
 ###############################################################################
