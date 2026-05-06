@@ -1,3 +1,8 @@
+# Sandbox environment
+
+Running in a sandbox environment with limited permissions and an HTTP proxy that limits access to domains.
+If access to specific domains is denied consider asking the user to allow access.
+
 # Common project conventions
 
 ## Commits
