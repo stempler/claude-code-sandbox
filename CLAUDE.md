@@ -55,6 +55,7 @@ proxy-log [all|denied|allowed|follow]
 | `init-firewall.sh` | Configures Squid + iptables (allows loopback, DNS, Anthropic CIDR; denies everything else for devuser) |
 | `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; selects DinD profile when `ENABLE_DOCKER=true` |
 | `bin/code-sandbox` | Host-side launcher: builds image, mounts cwd, passes HOST_UID/GID, reuses container per workspace |
+| `sandbox-exec` | Thin wrapper used as the `docker exec` target; sources `/etc/environment` (proxy, DinD vars) before exec'ing the user command |
 | `proxy-log.sh` | Reads Squid access logs from inside the running container |
 | `config/.claude/settings.json` | Active permission profile (currently permissive) |
 | `config-dind/.claude/settings.json` | DinD permission profile — same as permissive but allows `docker *` and `podman *` |

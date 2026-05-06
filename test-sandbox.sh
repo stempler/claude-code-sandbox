@@ -459,6 +459,50 @@ while IFS= read -r line; do
     fi
 done <<< "$TEST_OUTPUT"
 
+# ── Exec-attach regression: proxy env reaches reused-container sessions ──────
+# Starts the sandbox normally (docker run, full entrypoint), then re-invokes
+# the launcher to trigger the container-reuse path (docker exec + sandbox-exec).
+# Verifies that HTTPS_PROXY and outbound curl both work in the attached session.
+echo ""
+echo "[test] Verifying exec-attach session inherits proxy env..."
+echo ""
+
+CONTAINER_NAME="claude-sandbox-$(echo "$SCRIPT_DIR" | md5sum | cut -c1-12)"
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
+# Start the sandbox in the background. stdin/stdout are not TTYs here so
+# neither the run-branch nor the exec-branch adds -it.
+"$SANDBOX" --no-build -- bash -c 'sleep 60' >/dev/null 2>&1 &
+BG_PID=$!
+
+# Poll for firewall-verify (written by init-firewall.sh when setup is complete).
+ATTACH_READY=false
+for i in $(seq 1 60); do
+    if docker exec "$CONTAINER_NAME" test -f /run/firewall-verify 2>/dev/null; then
+        ATTACH_READY=true; break
+    fi
+    sleep 1
+done
+
+if ! $ATTACH_READY; then
+    fail "exec-attach session inherits proxy env (container did not reach ready state)"
+else
+    ATTACH_OUT=$("$SANDBOX" --no-build -- bash -c '
+        echo "PROXY=${HTTPS_PROXY:-UNSET}"
+        echo "HTTP_CODE=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" https://api.anthropic.com)"
+    ' 2>&1 || true)
+
+    if echo "$ATTACH_OUT" | grep -q "PROXY=http://localhost:3128" && \
+       echo "$ATTACH_OUT" | grep -qE "HTTP_CODE=[1-9][0-9][0-9]"; then
+        pass "exec-attach session inherits proxy env"
+    else
+        fail "exec-attach session inherits proxy env (got: $ATTACH_OUT)"
+    fi
+fi
+
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+wait "$BG_PID" 2>/dev/null || true
+
 # ── Docker-in-Docker tests (opt-in via --enable-docker) ─────────────────────
 if $TEST_DIND; then
     echo ""

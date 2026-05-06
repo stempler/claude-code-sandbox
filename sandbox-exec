@@ -1,0 +1,12 @@
+#!/bin/bash
+# Source sandbox-managed env (proxy, DinD) for docker exec attach sessions.
+# /etc/environment is written by entrypoint.sh and is the single source of
+# truth for these values. docker exec bypasses PAM and bash is launched
+# non-login, so /etc/environment would otherwise never be read.
+#
+# Format constraint: values in /etc/environment must be shell-safe
+# (no spaces, no quotes, no shell expansions) so `source` and PAM both accept them.
+set -a
+[ -f /etc/environment ] && . /etc/environment
+set +a
+exec "$@"
