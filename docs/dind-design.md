@@ -216,6 +216,6 @@ Currently `docker-compose` (or `podman compose`) would work for single-container
 | `config/dind-seccomp.json` | Seccomp profile — Docker's default + DinD-specific syscalls |
 | `entrypoint.sh` | DinD init block: shared mount, runtime dir, containers.conf, socket startup |
 | `init-firewall.sh` | Adds container registry domains to Squid allowlist when `ENABLE_DOCKER=true` |
-| `lock-settings.sh` | Selects `config-dind/` settings profile when `ENABLE_DOCKER=true` |
-| `config-dind/.claude/settings.json` | DinD permissions profile — allows `docker *` and `podman *` commands |
+| `lock-settings.sh` | Overlays `config-dind/` tree on top of base and merges `settings.overrides.json` when `ENABLE_DOCKER=true` |
+| `config-dind/.claude/settings.overrides.json` | DinD settings diff — adds docker/podman allow rules, removes docker deny; merged into base `settings.json` at startup |
 | `test-sandbox.sh` | DinD test suite (8 checks, run with `--enable-docker`) |
