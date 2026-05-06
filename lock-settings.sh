@@ -13,18 +13,26 @@
 
 set -euo pipefail
 
-# Select settings profile: DinD profile when ENABLE_DOCKER=true, otherwise default
 CONFIG_SRC="/usr/local/share/sandbox-config"
 CONFIG_SRC_DIND="/usr/local/share/sandbox-config-dind"
-
-if [ "${ENABLE_DOCKER:-}" = "true" ] && [ -d "$CONFIG_SRC_DIND" ]; then
-    CONFIG_SRC="$CONFIG_SRC_DIND"
-    echo "[lock-settings] Using DinD settings profile (ENABLE_DOCKER=true)"
-fi
-
 CONFIG_DST="/home/devuser"
 CLAUDE_DIR="$CONFIG_DST/.claude"
 SETTINGS_LOCAL="$CLAUDE_DIR/settings.local.json"
+
+# Copy every regular file from a config tree to CONFIG_DST, skipping *.overrides.json
+# (those are patch files consumed by the settings merge step, not direct config files).
+apply_tree() {
+    local src="$1"
+    find "$src" -type f ! -name '*.overrides.json' | while read -r src_file; do
+        local rel="${src_file#"$src"/}"
+        local dst="$CONFIG_DST/$rel"
+        mkdir -p "$(dirname "$dst")"
+        cp "$src_file" "$dst"
+        chown root:devuser "$dst"
+        chmod 0444 "$dst"
+        echo "[lock-settings]   Locked: $rel"
+    done
+}
 
 if [ ! -d "$CONFIG_SRC" ]; then
     echo "[lock-settings] ERROR: Canonical config not found at $CONFIG_SRC"
@@ -32,16 +40,33 @@ if [ ! -d "$CONFIG_SRC" ]; then
     exit 1
 fi
 
-# Restore and lock every file in the canonical config tree
-find "$CONFIG_SRC" -type f | while read -r src_file; do
-    rel_path="${src_file#"$CONFIG_SRC"/}"
-    dst_file="$CONFIG_DST/$rel_path"
-    mkdir -p "$(dirname "$dst_file")"
-    cp "$src_file" "$dst_file"
-    chown root:devuser "$dst_file"
-    chmod 0444 "$dst_file"
-    echo "[lock-settings]   Locked: $rel_path"
-done
+# Always start from the base tree
+apply_tree "$CONFIG_SRC"
+
+if [ "${ENABLE_DOCKER:-}" = "true" ] && [ -d "$CONFIG_SRC_DIND" ]; then
+    echo "[lock-settings] Applying DinD overlay (ENABLE_DOCKER=true)"
+    # Overlay DinD-specific files on top (only files that differ need to live here)
+    apply_tree "$CONFIG_SRC_DIND"
+
+    # Merge settings.overrides.json patch into the already-copied settings.json
+    OVR="$CONFIG_SRC_DIND/.claude/settings.overrides.json"
+    SETTINGS="$CLAUDE_DIR/settings.json"
+    if [ -f "$OVR" ]; then
+        chmod 0644 "$SETTINGS"
+        jq -s '
+          .[0] as $b | .[1] as $o |
+          $b
+          + {_profile: ($o._profile // $b._profile),
+             _description: ($o._description // $b._description)}
+          | .permissions.allow = (.permissions.allow + ($o.permissions_allow_add // []))
+          | .permissions.deny  = (.permissions.deny  - ($o.permissions_deny_remove // []))
+        ' "$SETTINGS" "$OVR" > "${SETTINGS}.tmp"
+        mv "${SETTINGS}.tmp" "$SETTINGS"
+        chown root:devuser "$SETTINGS"
+        chmod 0444 "$SETTINGS"
+        echo "[lock-settings] Applied DinD settings overrides from $(basename "$OVR")"
+    fi
+fi
 
 # Stake claim on settings.local.json — Claude Code supports this as an
 # override file. Create it root-owned and read-only so the agent cannot

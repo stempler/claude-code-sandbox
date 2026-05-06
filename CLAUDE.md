@@ -53,12 +53,12 @@ proxy-log [all|denied|allowed|follow]
 | `Dockerfile` | Ubuntu 26.04 base; installs Python, mise, gosu, iptables, Squid, Podman, Claude Code |
 | `entrypoint.sh` | Root startup: UID/GID remap → update CLIs → lock settings → init firewall → [DinD init] → drop to devuser |
 | `init-firewall.sh` | Configures Squid + iptables (allows loopback, DNS, Anthropic CIDR; denies everything else for devuser) |
-| `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; selects DinD profile when `ENABLE_DOCKER=true` |
+| `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; overlays DinD tree and merges `settings.overrides.json` when `ENABLE_DOCKER=true` |
 | `bin/code-sandbox` | Host-side launcher: builds image, mounts cwd, passes HOST_UID/GID, reuses container per workspace |
 | `sandbox-exec` | Thin wrapper used as the `docker exec` target; sources `/etc/environment` (proxy, DinD vars) before exec'ing the user command |
 | `proxy-log.sh` | Reads Squid access logs from inside the running container |
-| `config/.claude/settings.json` | Active permission profile (currently permissive) |
-| `config-dind/.claude/settings.json` | DinD permission profile — same as permissive but allows `docker *` and `podman *` |
+| `config/.claude/settings.json` | Active permission profile (currently permissive); single source of truth for both normal and DinD mode |
+| `config-dind/.claude/settings.overrides.json` | DinD-only settings diff — `jq`-merged on top of base at startup; adds `docker *`/`podman *` allows, removes the docker deny |
 | `config/dind-seccomp.json` | Custom seccomp profile for DinD mode (adds `unshare`, `mount`, `setns` to Docker default) |
 | `settings-profiles/strict.json` | No arbitrary shell/Python; only explicitly listed commands |
 | `settings-profiles/permissive.json` | Allows `python *`; relies on firewall as primary defense |

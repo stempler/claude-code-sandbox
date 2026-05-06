@@ -1,0 +1,13 @@
+{
+  "_profile": "dind-permissive",
+  "_description": "Extends the permissive profile with Docker (Podman) access for tasks that need container builds, testcontainers, or docker-compose stacks. Inner containers run rootless via Podman and are subject to the same egress firewall as the agent.",
+  "permissions_allow_add": [
+    "Bash(docker *)",
+    "Bash(podman *)",
+    "Bash(docker-compose *)",
+    "Bash(podman-compose *)"
+  ],
+  "permissions_deny_remove": [
+    "Bash(docker *)"
+  ]
+}
