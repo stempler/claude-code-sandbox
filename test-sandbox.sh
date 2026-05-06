@@ -84,36 +84,8 @@ set -euo pipefail
 echo "=== BEGIN TESTS ==="
 
 # ── Root phase: remap devuser to host UID/GID ────────────────────────────
-# Mirrors entrypoint.sh (including UID collision handling) so tests match runtime.
-if echo "${HOST_UID:-}" | grep -qE "^[0-9]+$" && echo "${HOST_GID:-}" | grep -qE "^[0-9]+$"; then
-    CURRENT_UID=$(id -u devuser)
-    CURRENT_GID=$(id -g devuser)
-    if [ "$HOST_GID" != "$CURRENT_GID" ]; then
-        EXISTING_GROUP=$(getent group "$HOST_GID" | cut -d: -f1 || true)
-        if [ -n "$EXISTING_GROUP" ]; then
-            usermod -g "$HOST_GID" devuser
-        else
-            groupmod -g "$HOST_GID" devuser
-        fi
-    fi
-    if [ "$HOST_UID" != "$CURRENT_UID" ]; then
-        uid_owner=$(getent passwd "$HOST_UID" | cut -d: -f1 || true)
-        if [ -n "$uid_owner" ] && [ "$uid_owner" != "devuser" ]; then
-            echo "[test-remap] UID $HOST_UID is in use by $uid_owner; relocating to a spare UID"
-            temp_uid=99990
-            while getent passwd "$temp_uid" >/dev/null; do
-                temp_uid=$((temp_uid + 1))
-            done
-            other_home=$(getent passwd "$uid_owner" | cut -d: -f6)
-            usermod -u "$temp_uid" "$uid_owner"
-            if [ -n "$other_home" ] && [ -d "$other_home" ]; then
-                chown -R "$uid_owner:" "$other_home" 2>/dev/null || true
-            fi
-        fi
-        usermod -u "$HOST_UID" devuser
-    fi
-    chown -R devuser /home/devuser 2>/dev/null || true
-fi
+. /usr/local/lib/sandbox-init.sh
+sandbox::remap_devuser_uid_gid
 
 # ── UID/GID remap verification ───────────────────────────────────────────
 DEVUSER_UID=$(id -u devuser)
@@ -515,32 +487,8 @@ set -euo pipefail
 echo "=== BEGIN DIND TESTS ==="
 
 # ── Mirror entrypoint: remap devuser UID/GID to match host ──────────────
-if echo "${HOST_UID:-}" | grep -qE "^[0-9]+$" && echo "${HOST_GID:-}" | grep -qE "^[0-9]+$"; then
-    CURRENT_UID=$(id -u devuser)
-    CURRENT_GID=$(id -g devuser)
-    if [ "$HOST_GID" != "$CURRENT_GID" ]; then
-        EXISTING_GROUP=$(getent group "$HOST_GID" | cut -d: -f1 || true)
-        if [ -n "$EXISTING_GROUP" ]; then
-            usermod -g "$HOST_GID" devuser
-        else
-            groupmod -g "$HOST_GID" devuser
-        fi
-    fi
-    if [ "$HOST_UID" != "$CURRENT_UID" ]; then
-        uid_owner=$(getent passwd "$HOST_UID" | cut -d: -f1 || true)
-        if [ -n "$uid_owner" ] && [ "$uid_owner" != "devuser" ]; then
-            temp_uid=99990
-            while getent passwd "$temp_uid" >/dev/null; do temp_uid=$((temp_uid + 1)); done
-            other_home=$(getent passwd "$uid_owner" | cut -d: -f6)
-            usermod -u "$temp_uid" "$uid_owner"
-            if [ -n "$other_home" ] && [ -d "$other_home" ]; then
-                chown -R "$uid_owner:" "$other_home" 2>/dev/null || true
-            fi
-        fi
-        usermod -u "$HOST_UID" devuser
-    fi
-    chown -R devuser /home/devuser 2>/dev/null || true
-fi
+. /usr/local/lib/sandbox-init.sh
+sandbox::remap_devuser_uid_gid
 
 # ── Lock settings (ENABLE_DOCKER=true selects dind profile) ─────────────
 /usr/local/bin/lock-settings.sh > /dev/null 2>&1
@@ -548,60 +496,14 @@ fi
 # ── Initialize firewall (Squid + iptables) ───────────────────────────────
 /usr/local/bin/init-firewall.sh > /dev/null 2>&1
 
-# ── Set proxy env vars — mirrors entrypoint.sh so devuser gosu calls use Squid ──
-cat > /etc/environment <<PROXYEOF
-http_proxy=http://localhost:3128
-https_proxy=http://localhost:3128
-HTTP_PROXY=http://localhost:3128
-HTTPS_PROXY=http://localhost:3128
-no_proxy=localhost,127.0.0.1
-NO_PROXY=localhost,127.0.0.1
-PROXYEOF
-set -a
-. /etc/environment
-set +a
+# ── Set proxy env vars ────────────────────────────────────────────────────
+sandbox::write_proxy_environment
 
-# ── Make root mount shared (required for rootless Podman bind mounts) ────
-mount --make-rshared / > /dev/null 2>&1 || true
+# ── Set up rootless Podman (includes rshared mount + runtime dir + config) ──
+sandbox::setup_rootless_podman
 
-# ── Set up rootless Podman ────────────────────────────────────────────────
-DEVUSER_UID=$(id -u devuser)
-RUNTIME_DIR="/run/user/$DEVUSER_UID"
-mkdir -p "$RUNTIME_DIR"
-chown devuser:devuser "$RUNTIME_DIR"
-chmod 700 "$RUNTIME_DIR"
-
-CONTAINERS_DIR="/home/devuser/.config/containers"
-mkdir -p "$CONTAINERS_DIR"
-cat > "$CONTAINERS_DIR/storage.conf" <<STOR
-[storage]
-driver = "overlay"
-
-[storage.options.overlay]
-mount_program = "/usr/bin/fuse-overlayfs"
-mountopt = "nodev,noatime"
-STOR
-cat > "$CONTAINERS_DIR/containers.conf" <<CONF
-[containers]
-http_proxy = true
-env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1"]
-default_sysctls = []
-pidns = "host"
-utsns = "host"
-netns = "host"
-
-[engine]
-runtime = "crun"
-CONF
-chown -R devuser:devuser /home/devuser/.config
-
-# Start Podman API socket (Docker-compatible) as devuser.
-# Start early so it has time to appear while the other tests run.
-# Pre-create the socket directory (podman system service does not create it).
-SOCKET="$RUNTIME_DIR/podman/podman.sock"
-mkdir -p "$RUNTIME_DIR/podman"
-chown devuser:devuser "$RUNTIME_DIR/podman"
-gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman system service --time=0 unix://$SOCKET" > /dev/null 2>&1 &
+# Start Podman API socket early so it has time to appear while other tests run.
+sandbox::start_podman_socket
 
 # ── Pre-test diagnostics ──────────────────────────────────────────────────
 echo "=== DIAGNOSTICS ==="
@@ -677,11 +579,7 @@ fi
 # The socket was started early (before other tests) to allow startup time.
 # By now, the other 5 tests above have run (~30s total), giving the service
 # enough time to initialize and create the socket file.
-SOCKET_READY=false
-for i in $(seq 1 20); do
-    if [ -S "$SOCKET" ]; then SOCKET_READY=true; break; fi
-    sleep 0.5
-done
+sandbox::wait_for_podman_socket
 if [ "$SOCKET_READY" = "true" ]; then
     echo "TEST_DIND_SOCKET_READY=PASS"
 else

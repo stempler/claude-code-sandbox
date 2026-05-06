@@ -62,6 +62,8 @@ COPY proxy-log.sh       /usr/local/bin/proxy-log
 COPY render-credentials.sh  /usr/local/bin/render-credentials.sh
 COPY sandbox-exec       /usr/local/bin/sandbox-exec
 RUN chmod 755 /usr/local/bin/init-firewall.sh /usr/local/bin/lock-settings.sh /usr/local/bin/entrypoint.sh /usr/local/bin/proxy-log /usr/local/bin/render-credentials.sh /usr/local/bin/sandbox-exec
+COPY lib/sandbox-init.sh /usr/local/lib/sandbox-init.sh
+RUN chmod 644 /usr/local/lib/sandbox-init.sh
 
 # ── gomplate (template engine for secret injection) ──────────────────────────
 RUN curl -fsSL https://github.com/hairyhenderson/gomplate/releases/download/v4.3.0/gomplate_linux-amd64 \
