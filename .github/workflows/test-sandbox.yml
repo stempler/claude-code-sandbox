@@ -33,5 +33,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Allow unprivileged user namespaces (Ubuntu 24.04 restriction)
+        run: |
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Run sandbox security tests
         run: bash test-sandbox.sh --enable-docker
