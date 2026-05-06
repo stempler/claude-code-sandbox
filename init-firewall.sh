@@ -101,6 +101,7 @@ else
             .docker.io
             .docker.com
             .production.cloudflare.docker.com
+            .r2.cloudflarestorage.com
             .ghcr.io
             .gcr.io
             .quay.io

@@ -548,6 +548,19 @@ fi
 # ── Initialize firewall (Squid + iptables) ───────────────────────────────
 /usr/local/bin/init-firewall.sh > /dev/null 2>&1
 
+# ── Set proxy env vars — mirrors entrypoint.sh so devuser gosu calls use Squid ──
+cat > /etc/environment <<PROXYEOF
+http_proxy=http://localhost:3128
+https_proxy=http://localhost:3128
+HTTP_PROXY=http://localhost:3128
+HTTPS_PROXY=http://localhost:3128
+no_proxy=localhost,127.0.0.1
+NO_PROXY=localhost,127.0.0.1
+PROXYEOF
+set -a
+. /etc/environment
+set +a
+
 # ── Make root mount shared (required for rootless Podman bind mounts) ────
 mount --make-rshared / > /dev/null 2>&1 || true
 
@@ -590,6 +603,21 @@ mkdir -p "$RUNTIME_DIR/podman"
 chown devuser:devuser "$RUNTIME_DIR/podman"
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman system service --time=0 unix://$SOCKET" > /dev/null 2>&1 &
 
+# ── Pre-test diagnostics ──────────────────────────────────────────────────
+echo "=== DIAGNOSTICS ==="
+echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+echo "outer_apparmor_label: $(cat /proc/self/attr/current 2>/dev/null | tr -d '\0' || echo unknown)"
+echo "devuser: $(id devuser 2>&1 || echo unknown)"
+echo "subuid: $(grep devuser /etc/subuid 2>/dev/null || echo missing)"
+echo "subgid: $(grep devuser /etc/subgid 2>/dev/null || echo missing)"
+echo "--- podman unshare uid_map ---"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman unshare cat /proc/self/uid_map 2>&1" || true
+echo "--- podman info ---"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman info 2>&1" | head -60 || true
+echo "--- dmesg apparmor ---"
+dmesg 2>&1 | grep -iE "apparmor|userns" | tail -10 || true
+echo "=== END DIAGNOSTICS ==="
+
 # ── DinD settings profile ─────────────────────────────────────────────────
 if grep -q "dind-permissive" /home/devuser/.claude/settings.json 2>/dev/null; then
     echo "TEST_DIND_SETTINGS_PROFILE=PASS"
@@ -598,7 +626,7 @@ else
 fi
 
 # ── Basic container execution ─────────────────────────────────────────────
-if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine echo hello" 2>/dev/null | grep -q "hello"; then
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine echo hello" 2>&1 | grep -q "hello"; then
     echo "TEST_DIND_RUNS=PASS"
 else
     echo "TEST_DIND_RUNS=FAIL (podman run --rm alpine echo hello failed)"
@@ -607,7 +635,7 @@ fi
 # ── Host filesystem isolation ─────────────────────────────────────────────
 # Mounting / into an inner container should see the sandbox root, not the real host.
 SANDBOX_HOSTNAME=$(hostname)
-INNER_HOSTNAME=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /:/host:ro alpine cat /host/etc/hostname 2>/dev/null" 2>/dev/null || echo "ERROR")
+INNER_HOSTNAME=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /:/host:ro alpine cat /host/etc/hostname 2>/dev/null" 2>&1 || echo "ERROR")
 if [ "$INNER_HOSTNAME" = "$SANDBOX_HOSTNAME" ]; then
     echo "TEST_DIND_HOST_FS_ISOLATED=PASS"
 else
@@ -615,7 +643,7 @@ else
 fi
 
 # ── Workspace mount ────────────────────────────────────────────────────────
-if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /workspace:/workspace:ro alpine test -d /workspace" 2>/dev/null; then
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm -v /workspace:/workspace:ro alpine test -d /workspace" 2>&1 >/dev/null; then
     echo "TEST_DIND_WORKSPACE_MOUNT=PASS"
 else
     echo "TEST_DIND_WORKSPACE_MOUNT=FAIL (could not mount /workspace into inner container)"
@@ -624,7 +652,7 @@ fi
 # ── Firewall blocks inner containers without proxy ────────────────────────
 # Inner container traffic exits as devuser UID → iptables rejects direct TCP.
 # Without proxy env vars, outbound HTTP should fail.
-if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine wget -q --tries=1 --timeout=5 -O- http://pastebin.com 2>/dev/null" 2>/dev/null | head -1 | grep -qi "doctype\|html"; then
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm alpine wget -q --tries=1 --timeout=5 -O- http://pastebin.com 2>/dev/null" 2>&1 | head -1 | grep -qi "doctype\|html"; then
     echo "TEST_DIND_FIREWALL_BLOCKS=FAIL (inner container reached pastebin.com without proxy!)"
 else
     echo "TEST_DIND_FIREWALL_BLOCKS=PASS"
@@ -634,10 +662,11 @@ fi
 # Proxy env vars are set via containers.conf; inner container uses them.
 # Use http:// so BusyBox wget (alpine) can proxy via Squid without CONNECT.
 # Any HTTP response (200, 301, etc.) proves the proxy forwarded the request.
-HTTP_CODE=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR \
+PROXY_OUTPUT=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR \
     podman run --rm \
-        alpine wget -q --tries=1 --timeout=10 -S -O /dev/null http://pypi.org 2>&1 || true" 2>/dev/null \
-    | grep "^  HTTP/" | tail -1 | awk '"'"'{print $2}'"'"' || echo "000")
+        alpine wget -q --tries=1 --timeout=10 -S -O /dev/null http://pypi.org 2>&1 || true" 2>&1)
+echo "proxy_output: $PROXY_OUTPUT"
+HTTP_CODE=$(echo "$PROXY_OUTPUT" | grep "^  HTTP/" | tail -1 | awk '"'"'{print $2}'"'"' || echo "000")
 if [ -n "$HTTP_CODE" ] && [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "503" ]; then
     echo "TEST_DIND_PROXY_ALLOWS=PASS"
 else
@@ -660,7 +689,7 @@ else
 fi
 
 # ── Docker CLI compatibility (podman-docker shim) ─────────────────────────
-if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR DOCKER_HOST=unix://$SOCKET docker run --rm alpine echo docker-compat" 2>/dev/null | grep -q "docker-compat"; then
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR DOCKER_HOST=unix://$SOCKET docker run --rm alpine echo docker-compat" 2>&1 | grep -q "docker-compat"; then
     echo "TEST_DIND_DOCKER_CLI_COMPAT=PASS"
 else
     echo "TEST_DIND_DOCKER_CLI_COMPAT=FAIL (docker CLI shim failed)"
@@ -686,6 +715,11 @@ echo "=== END DIND TESTS ==="
             skip "$READABLE $DETAIL"
         fi
     done <<< "$DIND_OUTPUT"
+    if echo "$DIND_OUTPUT" | grep -q "^TEST_.*=FAIL"; then
+        echo ""
+        echo "  [DinD container output]"
+        echo "$DIND_OUTPUT" | sed 's/^/    /'
+    fi
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
