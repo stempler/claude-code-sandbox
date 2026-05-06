@@ -3,7 +3,15 @@
 Running in a sandbox environment with limited permissions and an HTTP proxy that limits access to domains.
 If access to specific domains is denied consider asking the user to allow access.
 
+# General considerations
+
+- when introducing new tools or dependencies (packages, terraform providers, helm charts, etc.) please make sure to use the respective latest releases
+
 # Common project conventions
+
+## Tools
+
+When using/requiring command line tools it is preferred to use [mise-en-place](https://mise.jdx.dev) to provide and manage tools, so they are available in the proper versions for every developer and CI (e.g. using the respective GitHub Action or similar).
 
 ## Commits
 
