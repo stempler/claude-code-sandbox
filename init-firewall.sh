@@ -78,6 +78,8 @@ DEFAULT_DOMAINS=(
     .mise-java.jdx.dev
     # Added by firewall-allow (2026-04-30)
     .nodejs.org
+    # Added by code-sandbox-allow (2026-05-06)
+    .platform.claude.com
 )
 
 ###############################################################################
