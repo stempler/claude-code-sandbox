@@ -80,6 +80,10 @@ DEFAULT_DOMAINS=(
     .nodejs.org
     # Added by code-sandbox-allow (2026-05-06)
     .platform.claude.com
+    # Added by code-sandbox-allow (2026-05-08)
+    .code.claude.com
+    .docs.claude.com
+    .hub.docker.com
 )
 
 ###############################################################################
