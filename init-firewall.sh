@@ -84,6 +84,9 @@ DEFAULT_DOMAINS=(
     .code.claude.com
     .docs.claude.com
     .hub.docker.com
+    # Added by code-sandbox-allow (2026-05-20)
+    .get.helm.sh
+    .mise.en.dev
 )
 
 ###############################################################################
