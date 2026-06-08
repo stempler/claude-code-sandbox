@@ -87,6 +87,16 @@ DEFAULT_DOMAINS=(
     # Added by code-sandbox-allow (2026-05-20)
     .get.helm.sh
     .mise.en.dev
+    # Added by code-sandbox-allow (2026-06-01)
+    .fnox.jdx.dev
+    .opentofu.org
+    .registry.opentofu.org
+    # Added by code-sandbox-allow (2026-06-08)
+    .services.gradle.org
+    # Added by code-sandbox-allow (2026-06-08)
+    .artifactory.wetransform.to
+    .plugins.gradle.org
+    .repo1.maven.org
 )
 
 ###############################################################################
