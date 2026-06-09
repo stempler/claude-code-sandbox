@@ -255,6 +255,18 @@ else
     echo "TEST_FW_ALLOW_ANTHROPIC=FAIL (could not reach api.anthropic.com via proxy as devuser)"
 fi
 
+# ── JVM proxy: JAVA_TOOL_OPTIONS set with proxy system properties ─────────
+# The JVM ignores http_proxy/https_proxy; it only reads system properties via
+# JAVA_TOOL_OPTIONS. Verify that sandbox::write_proxy_environment exports
+# JAVA_TOOL_OPTIONS with the required proxy system properties.
+sandbox::write_proxy_environment
+if echo "${JAVA_TOOL_OPTIONS:-}" | grep -q "\-Dhttps.proxyHost=localhost" && \
+   echo "${JAVA_TOOL_OPTIONS:-}" | grep -q "\-Dhttp.proxyPort=3128"; then
+    echo "TEST_JVM_PROXY_OPTIONS=PASS"
+else
+    echo "TEST_JVM_PROXY_OPTIONS=FAIL (JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS:-UNSET})"
+fi
+
 # ── Privilege escalation: devuser cannot run sudo ────────────────────────
 if gosu devuser bash -c "sudo ls /root" 2>/dev/null; then
     echo "TEST_SUDO_RESTRICTED=FAIL (sudo ls /root succeeded!)"

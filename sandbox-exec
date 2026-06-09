@@ -4,8 +4,9 @@
 # truth for these values. docker exec bypasses PAM and bash is launched
 # non-login, so /etc/environment would otherwise never be read.
 #
-# Format constraint: values in /etc/environment must be shell-safe
-# (no spaces, no quotes, no shell expansions) so `source` and PAM both accept them.
+# Format: /etc/environment is only ever shell-sourced in this sandbox, not read
+# by PAM, so double-quoted values containing spaces (e.g. JAVA_TOOL_OPTIONS) are
+# safe — bash parses the quotes correctly during source.
 set -a
 [ -f /etc/environment ] && . /etc/environment
 set +a

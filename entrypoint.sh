@@ -79,8 +79,10 @@ echo "[entrypoint] Setting up egress firewall..."
 #   is used as the exec target by bin/code-sandbox for container-reuse attaches.
 # Both lower- and upper-case proxy vars are written; different tools check different
 # cases. no_proxy excludes localhost to prevent a proxy loop (devuser → :3128 → :3128).
-# Format constraint: values must be shell-safe (no spaces, quotes, or expansions)
-# so both `source` and PAM accept them.
+# JAVA_TOOL_OPTIONS is also written so JVM tools (Gradle, Maven, java) pick up the
+# proxy — the JVM ignores http_proxy/https_proxy and only reads system properties.
+# Format: /etc/environment is only ever shell-sourced in this sandbox, not read by
+# PAM, so double-quoted values containing spaces (e.g. JAVA_TOOL_OPTIONS) are safe.
 sandbox::write_proxy_environment
 
 # ── Verify API connectivity ────────────────────────────────────────────────

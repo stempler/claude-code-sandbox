@@ -71,7 +71,8 @@ proxy-log [all|denied|allowed|follow]
 
 All `devuser` traffic → Squid proxy (localhost:3128) → domain allowlist → internet.  
 Anthropic API CIDR (`160.79.104.0/23:443`) is also allowed directly via iptables.  
-iptables rejects anything that bypasses the proxy.
+iptables rejects anything that bypasses the proxy.  
+JVM tools (Gradle, Maven, `java`) are pointed at the proxy via `JAVA_TOOL_OPTIONS` in `/etc/environment`; they ignore `http_proxy`/`https_proxy` and only read proxy *system properties*.
 
 ### Docker-in-Docker Mode (`--enable-docker`)
 
