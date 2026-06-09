@@ -62,6 +62,10 @@ sandbox::remap_devuser_uid_gid() {
 # Writes proxy variables to /etc/environment and sources it into the current
 # shell. Both lower- and upper-case variants are written; different tools check
 # different cases. no_proxy/NO_PROXY exclude localhost to avoid proxy loops.
+# JAVA_TOOL_OPTIONS is also written (with quotes — value contains spaces) so
+# that the JVM picks up the proxy as system properties. This is safe because
+# /etc/environment is only ever shell-sourced in this sandbox, never read by
+# PAM (which does not handle quoted values).
 sandbox::write_proxy_environment() {
     cat > /etc/environment <<'EOF'
 http_proxy=http://localhost:3128
@@ -70,6 +74,7 @@ HTTP_PROXY=http://localhost:3128
 HTTPS_PROXY=http://localhost:3128
 no_proxy=localhost,127.0.0.1
 NO_PROXY=localhost,127.0.0.1
+JAVA_TOOL_OPTIONS="-Dhttp.proxyHost=localhost -Dhttp.proxyPort=3128 -Dhttps.proxyHost=localhost -Dhttps.proxyPort=3128 -Dhttp.nonProxyHosts=localhost|127.0.0.1"
 EOF
     set -a
     . /etc/environment
@@ -98,9 +103,11 @@ sandbox::setup_rootless_podman() {
     mkdir -p "$CONTAINERS_CONF_DIR"
     cat > "$CONTAINERS_CONF_DIR/containers.conf" <<'CONF'
 [containers]
-# Propagate proxy env vars into inner containers automatically
+# Propagate proxy env vars into inner containers automatically.
+# JAVA_TOOL_OPTIONS is included so JVM processes inside inner containers also
+# route through the Squid proxy (the JVM ignores http_proxy/https_proxy).
 http_proxy = true
-env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1"]
+env = ["http_proxy=http://localhost:3128", "https_proxy=http://localhost:3128", "no_proxy=localhost,127.0.0.1", "JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=localhost -Dhttp.proxyPort=3128 -Dhttps.proxyHost=localhost -Dhttps.proxyPort=3128 -Dhttp.nonProxyHosts=localhost|127.0.0.1"]
 # Suppress default sysctl that /proc/sys is read-only inside Docker
 default_sysctls = []
 # Share the sandbox PID, UTS, and network namespaces so inner containers:
