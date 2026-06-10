@@ -260,8 +260,10 @@ fi
 # JAVA_TOOL_OPTIONS. Verify that sandbox::write_proxy_environment exports
 # JAVA_TOOL_OPTIONS with the required proxy system properties.
 sandbox::write_proxy_environment
-if echo "${JAVA_TOOL_OPTIONS:-}" | grep -q "\-Dhttps.proxyHost=localhost" && \
-   echo "${JAVA_TOOL_OPTIONS:-}" | grep -q "\-Dhttp.proxyPort=3128"; then
+if printf '%s' "${JAVA_TOOL_OPTIONS:-}" | grep -Fq -- "-Dhttp.proxyHost=localhost" && \
+   printf '%s' "${JAVA_TOOL_OPTIONS:-}" | grep -Fq -- "-Dhttp.proxyPort=3128" && \
+   printf '%s' "${JAVA_TOOL_OPTIONS:-}" | grep -Fq -- "-Dhttps.proxyHost=localhost" && \
+   printf '%s' "${JAVA_TOOL_OPTIONS:-}" | grep -Fq -- "-Dhttps.proxyPort=3128"; then
     echo "TEST_JVM_PROXY_OPTIONS=PASS"
 else
     echo "TEST_JVM_PROXY_OPTIONS=FAIL (JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS:-UNSET})"
