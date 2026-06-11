@@ -97,6 +97,7 @@ DEFAULT_DOMAINS=(
     .artifactory.wetransform.to
     .plugins.gradle.org
     .repo1.maven.org
+    .doc.traefik.io
 )
 
 ###############################################################################
