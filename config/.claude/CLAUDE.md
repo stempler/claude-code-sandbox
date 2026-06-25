@@ -25,6 +25,6 @@ Commits must follow **Conventional Commits**:
 - `chore:` / `build:` / `docs:` / `perf:` / `style:` — other categories
 
 Commits should include a reference to the related JIRA issue in the footer, e.g. `ING-123`.
-The JIRA issue may be deduced from the branch name if it follows one of the patterns `ING-123` or `ING-123-description`.
+The JIRA issue may be deduced from the branch name if it follows one of the patterns `ING-123` or `ING-123-description`. In case there is no related issue identifiable, ignore.
 
 Use fixup commits (`git commit --fixup`) for corrections to previous commits.
