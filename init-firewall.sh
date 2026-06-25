@@ -98,6 +98,8 @@ DEFAULT_DOMAINS=(
     .plugins.gradle.org
     .repo1.maven.org
     .doc.traefik.io
+    # Added by code-sandbox-allow (2026-06-25)
+    .awscli.amazonaws.com
 )
 
 ###############################################################################
