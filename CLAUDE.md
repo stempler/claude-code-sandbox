@@ -53,7 +53,7 @@ proxy-log [all|denied|allowed|follow]
 | `Dockerfile` | Ubuntu 26.04 base; installs Python, mise, gosu, iptables, Squid, Podman, Claude Code |
 | `entrypoint.sh` | Root startup: UID/GID remap → update CLIs → lock settings → init firewall → [DinD init] → drop to devuser |
 | `init-firewall.sh` | Configures Squid + iptables (allows loopback, DNS, Anthropic CIDR; denies everything else for devuser) |
-| `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; overlays DinD tree and merges `settings.overrides.json` when `ENABLE_DOCKER=true` |
+| `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; preserves the user's `enabledPlugins` across the overwrite (so installed plugins stay enabled across restarts); overlays DinD tree and merges `settings.overrides.json` when `ENABLE_DOCKER=true` |
 | `bin/code-sandbox` | Host-side launcher: builds image, mounts cwd, passes HOST_UID/GID, reuses container per workspace |
 | `sandbox-exec` | Thin wrapper used as the `docker exec` target; sources `/etc/environment` (proxy, DinD vars) before exec'ing the user command |
 | `proxy-log.sh` | Reads Squid access logs from inside the running container |
@@ -170,6 +170,8 @@ Custom templates can be placed in `.sandbox-templates/` in the workspace and ref
 ### Credential Persistence
 
 A `claude-state-home` Docker volume persists Claude auth and OpenCode credentials across runs. Git identity is inherited from `git config user.name/email` on the host.
+
+The volume is mounted at `/home/devuser`, so installed Claude plugins (under `~/.claude/plugins/`) and their marketplaces persist too. Plugin *enablement*, however, lives in `~/.claude/settings.json` under `enabledPlugins`, which `lock-settings.sh` overwrites with the image canonical on every start — so the lock step explicitly captures `enabledPlugins` from the prior settings and re-merges it after the copy, keeping enabled plugins enabled across restarts (everything else still comes from the locked canonical).
 
 ### Security Test Suite
 
