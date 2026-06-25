@@ -40,8 +40,36 @@ if [ ! -d "$CONFIG_SRC" ]; then
     exit 1
 fi
 
+# ── Preserve user plugin enablement across the lock ───────────────────
+# Claude Code records which plugins are enabled in settings.json under the
+# "enabledPlugins" key. The apply_tree below overwrites settings.json with
+# the canonical (plugin-less) copy from the image, which would silently
+# disable every plugin the user installed in a previous session — even
+# though the plugin files themselves persist in the claude-state-home
+# volume. Capture the current enablement now and re-merge it after the
+# canonical copy is in place so installed plugins stay enabled across
+# container restarts. Permissions/hooks still come solely from the locked
+# image canonical; only enabledPlugins carries over.
+SETTINGS="$CLAUDE_DIR/settings.json"
+PREV_ENABLED_PLUGINS='{}'
+if [ -f "$SETTINGS" ]; then
+    PREV_ENABLED_PLUGINS="$(jq -c '.enabledPlugins // {}' "$SETTINGS" 2>/dev/null || echo '{}')"
+fi
+
 # Always start from the base tree
 apply_tree "$CONFIG_SRC"
+
+# Re-merge the preserved plugin enablement (see capture above).
+if [ "$PREV_ENABLED_PLUGINS" != "{}" ] && [ "$PREV_ENABLED_PLUGINS" != "null" ]; then
+    chmod 0644 "$SETTINGS"
+    jq --argjson ep "$PREV_ENABLED_PLUGINS" \
+       '.enabledPlugins = ($ep + (.enabledPlugins // {}))' \
+       "$SETTINGS" > "${SETTINGS}.tmp"
+    mv "${SETTINGS}.tmp" "$SETTINGS"
+    chown root:devuser "$SETTINGS"
+    chmod 0444 "$SETTINGS"
+    echo "[lock-settings] Preserved enabledPlugins across restart: $(echo "$PREV_ENABLED_PLUGINS" | jq -c 'keys')"
+fi
 
 if [ "${ENABLE_DOCKER:-}" = "true" ] && [ -d "$CONFIG_SRC_DIND" ]; then
     echo "[lock-settings] Applying DinD overlay (ENABLE_DOCKER=true)"

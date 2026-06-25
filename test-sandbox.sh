@@ -147,10 +147,35 @@ else
 fi
 
 # ── Settings: content matches canonical ──────────────────────────────────
-if diff -q /usr/local/share/sandbox-config/.claude/settings.json /home/devuser/.claude/settings.json > /dev/null 2>&1; then
+# enabledPlugins is intentionally carried over from the persisted volume
+# (see plugin-persistence test below), so strip it before comparing — every
+# other key must still match the locked image canonical exactly.
+# NOTE: this whole block runs inside a single-quoted bash -c '...' string,
+# so jq programs use escaped double quotes (no single quotes) — same style
+# as the credential deny-rules test below.
+CANON_SETTINGS=$(jq -S "del(.enabledPlugins)" /usr/local/share/sandbox-config/.claude/settings.json 2>/dev/null)
+LIVE_SETTINGS=$(jq -S "del(.enabledPlugins)" /home/devuser/.claude/settings.json 2>/dev/null)
+if [ -n "$CANON_SETTINGS" ] && [ "$CANON_SETTINGS" = "$LIVE_SETTINGS" ]; then
     echo "TEST_SETTINGS_CONTENT=PASS"
 else
     echo "TEST_SETTINGS_CONTENT=FAIL (content differs from canonical)"
+fi
+
+# ── Settings: plugin enablement persists across lock-settings runs ────────
+# Simulates the cross-restart flow: a previous session enabled a plugin
+# (written into settings.json), the volume persists it, and the next
+# container start re-runs lock-settings.sh. The enablement must survive the
+# canonical-config overwrite.
+chmod 0644 /home/devuser/.claude/settings.json 2>/dev/null || true
+jq ".enabledPlugins = {\"sentinel@test-marketplace\": true}" \
+   /home/devuser/.claude/settings.json > /home/devuser/.claude/settings.json.tmp \
+   && mv /home/devuser/.claude/settings.json.tmp /home/devuser/.claude/settings.json
+/usr/local/bin/lock-settings.sh > /dev/null 2>&1
+if jq -e ".enabledPlugins[\"sentinel@test-marketplace\"] == true" \
+        /home/devuser/.claude/settings.json > /dev/null 2>&1; then
+    echo "TEST_PLUGIN_ENABLEMENT_PERSISTS=PASS"
+else
+    echo "TEST_PLUGIN_ENABLEMENT_PERSISTS=FAIL (enabledPlugins lost after lock-settings re-run)"
 fi
 
 # ── Settings: local override is pre-claimed and locked ───────────────────
