@@ -224,7 +224,7 @@ if $ENABLE_DOCKER; then
     )
 else
     DOCKER_ARGS+=(
-        --pids-limit 100
+        --pids-limit 512
         --memory 4g
     )
 fi

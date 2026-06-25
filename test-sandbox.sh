@@ -269,6 +269,17 @@ else
     echo "TEST_JVM_PROXY_OPTIONS=FAIL (JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS:-UNSET})"
 fi
 
+# ── Resource limit: container pids cgroup is capped at 512 ───────────────
+# A low-but-workable PID ceiling is fork-bomb protection. 100 was too low for
+# JVM toolchains (Gradle launcher + daemon + workers exhaust it); 512 is the
+# shared value for both the base and --enable-docker profiles.
+PIDS_MAX=$(cat /sys/fs/cgroup/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || echo UNKNOWN)
+if [ "$PIDS_MAX" = "512" ]; then
+    echo "TEST_PIDS_LIMIT=PASS"
+else
+    echo "TEST_PIDS_LIMIT=FAIL (pids.max=$PIDS_MAX, expected 512)"
+fi
+
 # ── Privilege escalation: devuser cannot run sudo ────────────────────────
 if gosu devuser bash -c "sudo ls /root" 2>/dev/null; then
     echo "TEST_SUDO_RESTRICTED=FAIL (sudo ls /root succeeded!)"

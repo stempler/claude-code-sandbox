@@ -44,7 +44,7 @@ proxy-log [all|denied|allowed|follow]
 1. **Permission Settings** (`config/.claude/settings.json`) — explicit allow/deny lists for what Claude Code can execute; locked root-owned/immutable at container startup
 2. **Egress Firewall** (`init-firewall.sh`) — Squid proxy (domain allowlist) + iptables default-deny OUTPUT policy
 3. **Non-root Agent** — container starts as root, drops to `devuser` via `gosu` after initialization
-4. **Container Isolation** — no Docker socket/SSH keys/host credentials mounted; 2 CPU / 4 GB RAM / 100 PID limits
+4. **Container Isolation** — no Docker socket/SSH keys/host credentials mounted; 2 CPU / 4 GB RAM / 512 PID limits
 
 ### Key Files
 
@@ -84,7 +84,7 @@ Use `bin/code-sandbox --enable-docker` when the task needs Docker (testcontainer
 - Sets `TESTCONTAINERS_RYUK_DISABLED=true` (Ryuk is incompatible with Podman and unnecessary in an ephemeral sandbox)
 - Loads the DinD settings profile (unlocks `docker *` and `podman *` commands)
 - Adds container registry domains (docker.io, ghcr.io, gcr.io, quay.io) to the Squid allowlist
-- Increases resource limits: 512 PIDs, 8 GB RAM
+- Increases the memory limit to 8 GB (PID limit stays at 512, same as the base profile)
 
 **Security model unchanged:**
 - No `--privileged` on the outer container — only a targeted seccomp profile (`config/dind-seccomp.json`) that adds `unshare`/`mount`/`setns`
