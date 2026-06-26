@@ -96,6 +96,21 @@ if [ "${ENABLE_DOCKER:-}" = "true" ] && [ -d "$CONFIG_SRC_DIND" ]; then
     fi
 fi
 
+# ── Reclaim agent-writable mise global config ─────────────────────────
+# Earlier image versions seeded ~/.config/mise/config.toml through the locked
+# config tree, leaving it root-owned read-only. That file is exactly where
+# `mise use -g <tool>` writes, so the lock broke global tool installs. The
+# experimental setting now lives in the immutable MISE_EXPERIMENTAL image env
+# var instead, and this config is no longer managed here. Because /home/devuser
+# is a persisted volume, a stale root-owned copy can survive from older images —
+# hand it (and its parent dir) back to devuser so global installs work again.
+MISE_GLOBAL_CONFIG="$CONFIG_DST/.config/mise/config.toml"
+if [ -e "$MISE_GLOBAL_CONFIG" ] && [ "$(stat -c '%U' "$MISE_GLOBAL_CONFIG")" != "devuser" ]; then
+    chown devuser:devuser "$CONFIG_DST/.config/mise" "$MISE_GLOBAL_CONFIG"
+    chmod u+rw "$MISE_GLOBAL_CONFIG"
+    echo "[lock-settings] Reclaimed mise global config for devuser (was root-owned read-only)"
+fi
+
 # Stake claim on settings.local.json — Claude Code supports this as an
 # override file. Create it root-owned and read-only so the agent cannot
 # create its own version to override permissions.
