@@ -34,6 +34,13 @@ RUN install -dm 755 /etc/apt/keyrings \
     && apt-get update && apt-get install -y mise \
     && rm -rf /var/lib/apt/lists/*
 
+# Enable mise experimental features via an immutable image env var rather than a
+# config file. The agent's global config (~/.config/mise/config.toml) must stay
+# writable so `mise use -g <tool>` works; seeding+locking it there would both
+# break those writes and clobber globally-installed tools on every restart.
+# MISE_* env vars override the corresponding setting (see `mise settings`).
+ENV MISE_EXPERIMENTAL=true
+
 # ── Claude Code CLI ─────────────────────────────────────────────────────────
 # RUN curl -fsSL https://claude.ai/install.sh | bash \
 #     && cp /root/.local/bin/claude /usr/local/bin/claude
