@@ -577,6 +577,17 @@ else
     echo "TEST_DIND_PROC_KCORE_MASKED=PASS"
 fi
 
+# /proc/sysrq-trigger (host reboot/crash vector, not namespaced, outside /proc/sys)
+# must be read-only after reharden. Test with [ -w ] (an access() check) rather
+# than a write: access(W_OK) returns EROFS on a read-only mount even for root, so
+# this detects a writable sysrq-trigger WITHOUT ever opening it (a write could
+# trigger a sysrq action if the protection were broken).
+if [ -w /proc/sysrq-trigger ]; then
+    echo "TEST_DIND_PROC_SYSRQ_RO=FAIL (/proc/sysrq-trigger writable — reharden did not protect it)"
+else
+    echo "TEST_DIND_PROC_SYSRQ_RO=PASS"
+fi
+
 # ── Set up rootless Podman (includes rshared mount + runtime dir + config) ──
 sandbox::setup_rootless_podman
 
