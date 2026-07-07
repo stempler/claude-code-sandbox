@@ -36,6 +36,10 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE_DIR="$(pwd)"
 SKIP_BUILD=false
 ENABLE_DOCKER=false
+MODE_EXPLICIT=false
+NON_INTERACTIVE=false
+_ENABLE_DOCKER_SEEN=false
+_NO_DOCKER_SEEN=false
 ENTRYPOINT_OVERRIDE=""
 
 # Deterministic container name based on workspace path (allows reuse detection)
@@ -52,6 +56,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --enable-docker)
             ENABLE_DOCKER=true
+            MODE_EXPLICIT=true
+            _ENABLE_DOCKER_SEEN=true
+            shift
+            ;;
+        --no-docker)
+            ENABLE_DOCKER=false
+            MODE_EXPLICIT=true
+            _NO_DOCKER_SEEN=true
+            shift
+            ;;
+        --non-interactive)
+            NON_INTERACTIVE=true
             shift
             ;;
         --entrypoint)
@@ -64,7 +80,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "Unknown option: $1" >&2
-            echo "Usage: code-sandbox [--no-build] [--enable-docker] [--entrypoint <cmd>] [-- <command> [args...]]" >&2
+            echo "Usage: code-sandbox [--no-build] [--enable-docker | --no-docker] [--non-interactive] [--entrypoint <cmd>] [-- <command> [args...]]" >&2
             exit 1
             ;;
         *)
@@ -72,6 +88,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Reject contradictory mode flags
+if [[ "$_ENABLE_DOCKER_SEEN" == "true" ]] && [[ "$_NO_DOCKER_SEEN" == "true" ]]; then
+    echo "[code-sandbox] ERROR: --enable-docker and --no-docker are mutually exclusive." >&2
+    exit 1
+fi
 
 # Remaining arguments are the container command; default to bash
 CMD=("${@:-bash}")
