@@ -703,6 +703,10 @@ fi
 # aardvark reloads its name table asynchronously as containers join the network,
 # so a query fired immediately after the peer starts can race and see NXDOMAIN.
 # Retry until the peer resolves or we time out (~15s) — real clients retry too.
+# Pre-clean any leftovers first so the test always asserts against freshly
+# created resources and cannot pass on stale network/container state.
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman rm -f sbtest-svcb" >/dev/null 2>&1 || true
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network rm sbtest-dns" >/dev/null 2>&1 || true
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-dns" >/dev/null 2>&1 || true
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run -d --name sbtest-svcb --network sbtest-dns alpine sleep 60" >/dev/null 2>&1 || true
 DNS_OK=false
