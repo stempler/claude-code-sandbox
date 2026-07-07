@@ -648,6 +648,29 @@ else
     echo "TEST_DIND_PROXY_ALLOWS=FAIL (HTTP $HTTP_CODE reaching pypi.org from inner container)"
 fi
 
+# ── Network backend is netavark ───────────────────────────────────────────
+BACKEND=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman info --format '"'"'{{.Host.NetworkBackend}}'"'"'" 2>/dev/null || echo unknown)
+if [ "$BACKEND" = "netavark" ]; then
+    echo "TEST_DIND_NETWORK_BACKEND=PASS"
+else
+    echo "TEST_DIND_NETWORK_BACKEND=FAIL (NetworkBackend=$BACKEND, expected netavark)"
+fi
+
+# ── aardvark-dns binary present (name resolution depends on it) ────────────
+if ls /usr/lib/podman/aardvark-dns /usr/libexec/podman/aardvark-dns /usr/bin/aardvark-dns 2>/dev/null | grep -q .; then
+    echo "TEST_DIND_AARDVARK_PRESENT=PASS"
+else
+    echo "TEST_DIND_AARDVARK_PRESENT=FAIL (aardvark-dns binary not found)"
+fi
+
+# ── podman network create succeeds (netavark writes net.* sysctls) ─────────
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-net0" >/dev/null 2>&1; then
+    echo "TEST_DIND_NETWORK_CREATE=PASS"
+    gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network rm sbtest-net0" >/dev/null 2>&1 || true
+else
+    echo "TEST_DIND_NETWORK_CREATE=FAIL (podman network create failed — check netavark + /proc/sys/net writable)"
+fi
+
 # ── Podman API socket ready ────────────────────────────────────────────────
 # The socket was started early (before other tests) to allow startup time.
 # By now, the other 5 tests above have run (~30s total), giving the service

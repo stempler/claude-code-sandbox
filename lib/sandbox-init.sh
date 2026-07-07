@@ -166,6 +166,9 @@ netns = "host"
 
 [engine]
 runtime = "crun"
+
+[network]
+network_backend = "netavark"
 CONF
     cat > "$CONTAINERS_CONF_DIR/storage.conf" <<'STOR'
 [storage]
