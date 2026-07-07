@@ -671,6 +671,28 @@ else
     echo "TEST_DIND_NETWORK_CREATE=FAIL (podman network create failed — check netavark + /proc/sys/net writable)"
 fi
 
+# ── Inter-container name resolution + reachability on an explicit network ──
+# This is the design load-bearing check: it proves --network overrides the
+# netns=host default AND aardvark-dns resolves container names.
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-dns" >/dev/null 2>&1 || true
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run -d --name sbtest-svcb --network sbtest-dns alpine sleep 60" >/dev/null 2>&1 || true
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine ping -c1 -W3 sbtest-svcb" 2>&1 | grep -q "1 packets received"; then
+    echo "TEST_DIND_INTER_CONTAINER_DNS=PASS"
+else
+    echo "TEST_DIND_INTER_CONTAINER_DNS=FAIL (could not resolve/reach sbtest-svcb by name — bridge or aardvark-dns not working)"
+fi
+
+# ── Bridged container has NO external egress (masqueraded → devuser → REJECT) ──
+if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine wget -q --tries=1 --timeout=5 -O- http://pastebin.com" 2>&1 | grep -qi "html\|doctype"; then
+    echo "TEST_DIND_BRIDGE_EGRESS_BLOCKED=FAIL (bridged container reached pastebin.com!)"
+else
+    echo "TEST_DIND_BRIDGE_EGRESS_BLOCKED=PASS"
+fi
+
+# Cleanup
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman rm -f sbtest-svcb" >/dev/null 2>&1 || true
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network rm sbtest-dns" >/dev/null 2>&1 || true
+
 # ── Podman API socket ready ────────────────────────────────────────────────
 # The socket was started early (before other tests) to allow startup time.
 # By now, the other 5 tests above have run (~30s total), giving the service
