@@ -215,6 +215,34 @@ if [ -z "$ENTRYPOINT_OVERRIDE" ] && \
         /usr/local/bin/sandbox-exec "${CMD[@]}"
 fi
 
+# ── Interactive mode selection (fresh container only) ────────────────────────
+# Reached only when NOT attaching to a running container (the block above
+# exec's away when it attaches). Prompt only when mode was not chosen via flag,
+# --non-interactive was not passed, and we have an interactive terminal.
+if [[ "$MODE_EXPLICIT" == "false" ]] && [[ "$NON_INTERACTIVE" == "false" ]] \
+   && [ -t 0 ] && [ -t 1 ]; then
+    while true; do
+        echo "Select sandbox mode:"
+        echo "  1) No Docker (default)"
+        echo "  2) Docker (Podman) enabled"
+        # `read` returns non-zero on EOF; guard so `set -e` doesn't abort.
+        read -r -p "Choice [1]: " _mode_choice || _mode_choice=""
+        case "$_mode_choice" in
+            ""|1)
+                ENABLE_DOCKER=false
+                break
+                ;;
+            2)
+                ENABLE_DOCKER=true
+                break
+                ;;
+            *)
+                echo "[code-sandbox] Please enter 1 or 2." >&2
+                ;;
+        esac
+    done
+fi
+
 # ── Assemble docker run args ─────────────────────────────────────────────────
 DOCKER_ARGS=(
     --rm
