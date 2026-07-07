@@ -3,7 +3,7 @@
 # bin/code-sandbox — Run Claude Code / OpenCode in the sandbox container
 #
 # Usage:
-#   code-sandbox [--no-build] [--enable-docker] [-- <command> [args...]]
+#   code-sandbox [--no-build] [--enable-docker | --no-docker] [--non-interactive] [-- <command> [args...]]
 #
 # Options:
 #   --no-build        Skip rebuilding the Docker image before running
@@ -12,12 +12,22 @@
 #                     Inner containers are isolated and go through the same
 #                     egress firewall as the agent. Increases PIDs (512) and
 #                     memory (8g) limits.
+#   --no-docker       Explicitly run without Docker. Skips the interactive mode
+#                     prompt.
+#   --non-interactive Skip the interactive mode prompt and use the default
+#                     (no Docker) unless a mode flag is also given. Used by the
+#                     test suite and scripted invocations.
+#
+# When starting a fresh container without a mode flag, an interactive prompt
+# asks whether to enable Docker. The prompt is skipped when a mode flag or
+# --non-interactive is given, or when stdin/stdout is not a terminal.
 #
 # Examples:
-#   code-sandbox                              # interactive bash shell
+#   code-sandbox                              # prompts for mode, then bash shell
 #   code-sandbox -- claude -p "fix the bug" --max-turns 30
 #   code-sandbox --no-build -- bash           # skip rebuild, run immediately
 #   code-sandbox --enable-docker -- bash      # shell with Docker (Podman) access
+#   code-sandbox --non-interactive -- bash    # no prompt, default (no Docker)
 #
 # The current working directory is mounted as /workspace inside the container.
 # The container is automatically removed when it exits.
