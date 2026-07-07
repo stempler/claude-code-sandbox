@@ -91,6 +91,15 @@ EOF
 # Must run as root, before sandbox::setup_rootless_podman.
 # NOTE: these lists mirror runc's defaults — re-check on base-image bumps.
 #
+# Mount styles follow runc's own maskPath/readonlyPath:
+#   - file masks: bind /dev/null over the path. Deliberately NOT ro and NOT nodev —
+#     runc leaves it writable so writes are discarded (not EROFS), and nodev would
+#     stop the kernel honoring the null device, defeating the mask entirely.
+#   - directory masks: a read-only tmpfs. We add nosuid,nodev,noexec as extra
+#     hardening over runc's ro-only (harmless on an empty ro tmpfs).
+#   - readonly paths: bind + remount,ro (MS_RDONLY only), exactly as runc does;
+#     runc adds no nosuid/nodev/noexec here and neither do we.
+#
 # FAIL-CLOSED: every mount here is deliberately unguarded (no `|| true`). These
 # re-protections cover host-global surfaces — e.g. /proc/sysrq-trigger (host
 # reboot/crash) and /proc/kcore (host kernel memory) — that are NOT namespaced,
