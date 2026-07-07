@@ -689,13 +689,25 @@ fi
 # needs CAP_NET_RAW, which the podman default capability set omits, so a ping
 # failure would not indicate a DNS/bridge problem. A successful busybox
 # nslookup prints a "Name: sbtest-svcb..." answer line; NXDOMAIN does not.
+# aardvark reloads its name table asynchronously as containers join the network,
+# so a query fired immediately after the peer starts can race and see NXDOMAIN.
+# Retry until the peer resolves or we time out (~15s) — real clients retry too.
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-dns" >/dev/null 2>&1 || true
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run -d --name sbtest-svcb --network sbtest-dns alpine sleep 60" >/dev/null 2>&1 || true
-DNS_OUT=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine nslookup sbtest-svcb" 2>&1 || true)
-if echo "$DNS_OUT" | grep -qi "name:[[:space:]]*sbtest-svcb"; then
+DNS_OK=false
+DNS_OUT=""
+for _try in $(seq 1 15); do
+    DNS_OUT=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine nslookup sbtest-svcb" 2>&1 || true)
+    if echo "$DNS_OUT" | grep -qi "name:[[:space:]]*sbtest-svcb"; then
+        DNS_OK=true
+        break
+    fi
+    sleep 1
+done
+if [ "$DNS_OK" = true ]; then
     echo "TEST_DIND_INTER_CONTAINER_DNS=PASS"
 else
-    echo "TEST_DIND_INTER_CONTAINER_DNS=FAIL (aardvark did not resolve sbtest-svcb; nslookup output: $DNS_OUT)"
+    echo "TEST_DIND_INTER_CONTAINER_DNS=FAIL (aardvark did not resolve sbtest-svcb after retries; last nslookup: $DNS_OUT)"
 fi
 
 # ── Bridged container has NO external egress (masqueraded → devuser → REJECT) ──
