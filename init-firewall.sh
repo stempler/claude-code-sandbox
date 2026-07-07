@@ -100,6 +100,10 @@ DEFAULT_DOMAINS=(
     .doc.traefik.io
     # Added by code-sandbox-allow (2026-06-25)
     .awscli.amazonaws.com
+    # Added by code-sandbox-allow (2026-07-07)
+    .mise.jdx.dev
+    .plugins-artifacts.gradle.org
+    .repo.maven.apache.org
 )
 
 ###############################################################################
