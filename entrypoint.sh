@@ -99,6 +99,7 @@ fi
 # ── Docker-in-Docker: initialize rootless Podman ──────────────────────────────
 if [ "${ENABLE_DOCKER:-}" = "true" ]; then
     echo "[entrypoint] Initializing Docker-in-Docker (rootless Podman)..."
+    sandbox::reharden_proc_paths
     sandbox::setup_rootless_podman
     sandbox::append_dind_environment
     sandbox::start_podman_socket

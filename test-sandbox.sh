@@ -549,6 +549,29 @@ sandbox::remap_devuser_uid_gid
 # ── Set proxy env vars ────────────────────────────────────────────────────
 sandbox::write_proxy_environment
 
+# Mirror entrypoint DinD init: re-harden /proc before podman setup.
+sandbox::reharden_proc_paths
+
+# ── M1: /proc/sys/net writable, rest of /proc/sys and masked paths not ────
+if echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
+    echo "TEST_DIND_PROC_SYS_NET_WRITABLE=PASS"
+else
+    echo "TEST_DIND_PROC_SYS_NET_WRITABLE=FAIL (/proc/sys/net/ipv4/ip_forward not writable)"
+fi
+
+CUR_HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo x)
+if echo "$CUR_HOSTNAME" > /proc/sys/kernel/hostname 2>/dev/null; then
+    echo "TEST_DIND_PROC_SYS_KERNEL_RO=FAIL (/proc/sys/kernel/hostname writable — host kernel param exposed)"
+else
+    echo "TEST_DIND_PROC_SYS_KERNEL_RO=PASS"
+fi
+
+if [ -s /proc/kcore ]; then
+    echo "TEST_DIND_PROC_KCORE_MASKED=FAIL (/proc/kcore not masked)"
+else
+    echo "TEST_DIND_PROC_KCORE_MASKED=PASS"
+fi
+
 # ── Set up rootless Podman (includes rshared mount + runtime dir + config) ──
 sandbox::setup_rootless_podman
 

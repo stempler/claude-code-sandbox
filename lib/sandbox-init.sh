@@ -81,6 +81,50 @@ EOF
     set +a
 }
 
+# ── sandbox::reharden_proc_paths ──────────────────────────────────────────────
+# In DinD mode bin/code-sandbox launches with `--security-opt systempaths=unconfined`
+# so rootless netavark can write the net.* sysctls a bridge needs. That flag also
+# strips every other /proc protection Docker applies by default, so we re-apply
+# runc's default maskedPaths + readonlyPaths here and then re-open ONLY
+# /proc/sys/net. End state: /proc/sys/net is writable; /proc/sys/kernel,
+# /proc/sys/vm, /proc/kcore, /proc/sysrq-trigger, etc. are not.
+# Must run as root, before sandbox::setup_rootless_podman.
+# NOTE: these lists mirror runc's defaults — re-check on base-image bumps.
+sandbox::reharden_proc_paths() {
+    local masked=(
+        /proc/asound /proc/acpi /proc/kcore /proc/keys
+        /proc/latency_stats /proc/timer_list /proc/timer_stats
+        /proc/sched_debug /proc/scsi
+        /sys/firmware /sys/devices/virtual/powercap
+    )
+    local readonly_paths=(
+        /proc/bus /proc/fs /proc/irq /proc/sysrq-trigger
+    )
+
+    local p
+    for p in "${masked[@]}"; do
+        [ -e "$p" ] || continue
+        if [ -d "$p" ]; then
+            mount -t tmpfs -o ro,nosuid,nodev,noexec tmpfs "$p" 2>/dev/null || true
+        else
+            mount --bind /dev/null "$p" 2>/dev/null || true
+        fi
+    done
+
+    for p in "${readonly_paths[@]}"; do
+        [ -e "$p" ] || continue
+        mount --bind "$p" "$p" 2>/dev/null || true
+        mount -o remount,bind,ro "$p" 2>/dev/null || true
+    done
+
+    # Re-protect all of /proc/sys, then punch /proc/sys/net back to read-write —
+    # the sole surface netavark writes (net.ipv4.ip_forward, per-iface rp_filter…).
+    mount --bind /proc/sys /proc/sys
+    mount -o remount,bind,ro /proc/sys
+    mount --bind /proc/sys/net /proc/sys/net
+    mount -o remount,bind,rw /proc/sys/net
+}
+
 # ── sandbox::setup_rootless_podman ────────────────────────────────────────────
 # Prepares the rootless Podman runtime inside the container:
 #   - makes the root mount shared (required for bind mounts in inner containers)
