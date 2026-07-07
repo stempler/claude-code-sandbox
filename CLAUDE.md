@@ -88,7 +88,10 @@ Use `bin/code-sandbox --enable-docker` when the task needs Docker (testcontainer
 - Enables **bridge networking** for inner containers: `docker compose` stacks get
   their own netavark network with aardvark-dns, so services resolve each other by
   name. Standalone containers still default to host netns (keeping the
-  `localhost:3128` proxy path).
+  `localhost:3128` proxy path). netavark is pinned to its **iptables** firewall
+  driver (`firewall_driver = "iptables"` in `containers.conf`) — its 1.16 default
+  is nftables, which needs an `nft` binary the image doesn't ship, and iptables is
+  the stack the egress firewall already uses.
 
 **Security model unchanged:**
 - No `--privileged` on the outer container — only a targeted seccomp profile
