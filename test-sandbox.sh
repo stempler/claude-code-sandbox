@@ -24,6 +24,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SANDBOX="$SCRIPT_DIR/bin/code-sandbox"
 cd "$SCRIPT_DIR"
 
+# Dedicated container name for the test suite so its throwaway container never
+# collides with (or destroys) a real sandbox already running for this repo.
+# bin/code-sandbox honours SANDBOX_CONTAINER_NAME when set.
+export SANDBOX_CONTAINER_NAME="claude-sandbox-test-$(echo "$SCRIPT_DIR" | md5sum | cut -c1-12)"
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -64,7 +69,7 @@ echo ""
 # ── Step 1: Build the image ──────────────────────────────────────────────────
 echo "[test] Building sandbox image (first build may take a few minutes)..."
 echo ""
-if "$SANDBOX" --entrypoint true -- true; then
+if "$SANDBOX" --non-interactive --entrypoint true -- true; then
     echo ""
     pass "Image builds successfully"
 else
@@ -489,12 +494,12 @@ echo ""
 echo "[test] Verifying exec-attach session inherits proxy env..."
 echo ""
 
-CONTAINER_NAME="claude-sandbox-$(echo "$SCRIPT_DIR" | md5sum | cut -c1-12)"
+CONTAINER_NAME="$SANDBOX_CONTAINER_NAME"
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 # Start the sandbox in the background. stdin/stdout are not TTYs here so
 # neither the run-branch nor the exec-branch adds -it.
-"$SANDBOX" --no-build -- bash -c 'sleep 60' >/dev/null 2>&1 &
+"$SANDBOX" --no-build --non-interactive -- bash -c 'sleep 60' >/dev/null 2>&1 &
 BG_PID=$!
 
 # Poll for firewall-verify (written by init-firewall.sh when setup is complete).
@@ -509,7 +514,7 @@ done
 if ! $ATTACH_READY; then
     fail "exec-attach session inherits proxy env (container did not reach ready state)"
 else
-    ATTACH_OUT=$("$SANDBOX" --no-build -- bash -c '
+    ATTACH_OUT=$("$SANDBOX" --no-build --non-interactive -- bash -c '
         echo "PROXY=${HTTPS_PROXY:-UNSET}"
         echo "HTTP_CODE=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" https://api.anthropic.com)"
     ' 2>&1 || true)
@@ -531,7 +536,7 @@ if $TEST_DIND; then
     echo "[test] Running Docker-in-Docker (Podman) security tests..."
     echo ""
 
-    DIND_OUTPUT=$("$SANDBOX" --no-build --enable-docker --entrypoint bash -- -c '
+    DIND_OUTPUT=$("$SANDBOX" --no-build --non-interactive --enable-docker --entrypoint bash -- -c '
 set -euo pipefail
 
 echo "=== BEGIN DIND TESTS ==="
@@ -657,7 +662,13 @@ else
 fi
 
 # ── aardvark-dns binary present (name resolution depends on it) ────────────
-if ls /usr/lib/podman/aardvark-dns /usr/libexec/podman/aardvark-dns /usr/bin/aardvark-dns 2>/dev/null | grep -q .; then
+# Loop rather than `ls a b c | grep` — under set -o pipefail a missing path makes
+# ls exit non-zero and fails the whole pipeline even when another path exists.
+AARDVARK_FOUND=false
+for p in /usr/lib/podman/aardvark-dns /usr/libexec/podman/aardvark-dns /usr/bin/aardvark-dns; do
+    if [ -x "$p" ]; then AARDVARK_FOUND=true; break; fi
+done
+if [ "$AARDVARK_FOUND" = true ]; then
     echo "TEST_DIND_AARDVARK_PRESENT=PASS"
 else
     echo "TEST_DIND_AARDVARK_PRESENT=FAIL (aardvark-dns binary not found)"
@@ -676,6 +687,18 @@ fi
 # netns=host default AND aardvark-dns resolves container names.
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-dns" >/dev/null 2>&1 || true
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run -d --name sbtest-svcb --network sbtest-dns alpine sleep 60" >/dev/null 2>&1 || true
+# TEMP DIAGNOSTICS: pinpoint why bridged name resolution behaves as it does.
+# No single quotes here (whole block is single-quoted); each line guarded for set -e.
+echo "=== DNS DIAG ==="
+echo "svcb_ps:"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman ps -a" 2>&1 || true
+echo "client_ip_addr:"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine ip -o addr show" 2>&1 || true
+echo "client_resolv_conf:"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine cat /etc/resolv.conf" 2>&1 || true
+echo "client_nslookup_svcb:"
+gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine nslookup sbtest-svcb" 2>&1 || true
+echo "=== END DNS DIAG ==="
 if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine ping -c1 -W3 sbtest-svcb" 2>&1 | grep -q "1 packets received"; then
     echo "TEST_DIND_INTER_CONTAINER_DNS=PASS"
 else

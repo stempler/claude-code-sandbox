@@ -52,8 +52,11 @@ _ENABLE_DOCKER_SEEN=false
 _NO_DOCKER_SEEN=false
 ENTRYPOINT_OVERRIDE=""
 
-# Deterministic container name based on workspace path (allows reuse detection)
-CONTAINER_NAME="claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)"
+# Deterministic container name based on workspace path (allows reuse detection).
+# SANDBOX_CONTAINER_NAME overrides it — e.g. the test suite sets a dedicated name
+# so its throwaway container never collides with (or destroys) a real sandbox
+# already running for the same workspace.
+CONTAINER_NAME="${SANDBOX_CONTAINER_NAME:-claude-sandbox-$(echo "$WORKSPACE_DIR" | md5sum | cut -c1-12)}"
 SANDBOX_DOMAINS_FILE="$WORKSPACE_DIR/.sandbox-domains"
 SANDBOX_CREDENTIALS_FILE="$WORKSPACE_DIR/.sandbox-secrets.yaml"
 
