@@ -90,6 +90,15 @@ EOF
 # /proc/sys/vm, /proc/kcore, /proc/sysrq-trigger, etc. are not.
 # Must run as root, before sandbox::setup_rootless_podman.
 # NOTE: these lists mirror runc's defaults — re-check on base-image bumps.
+#
+# FAIL-CLOSED: every mount here is deliberately unguarded (no `|| true`). These
+# re-protections cover host-global surfaces — e.g. /proc/sysrq-trigger (host
+# reboot/crash) and /proc/kcore (host kernel memory) — that are NOT namespaced,
+# and /proc/sysrq-trigger is outside /proc/sys so the /proc/sys remount below
+# does not cover it. Under the caller's `set -euo pipefail` a failed mount must
+# abort startup before privileges drop to devuser, rather than silently boot a
+# less-hardened container. Genuinely-absent optional paths are skipped via the
+# existence guard (not fatal); a path that exists but cannot be re-protected is.
 sandbox::reharden_proc_paths() {
     local masked=(
         /proc/asound /proc/acpi /proc/kcore /proc/keys
@@ -105,24 +114,20 @@ sandbox::reharden_proc_paths() {
     for p in "${masked[@]}"; do
         [ -e "$p" ] || continue
         if [ -d "$p" ]; then
-            mount -t tmpfs -o ro,nosuid,nodev,noexec tmpfs "$p" 2>/dev/null || true
+            mount -t tmpfs -o ro,nosuid,nodev,noexec tmpfs "$p"
         else
-            mount --bind /dev/null "$p" 2>/dev/null || true
+            mount --bind /dev/null "$p"
         fi
     done
 
     for p in "${readonly_paths[@]}"; do
         [ -e "$p" ] || continue
-        mount --bind "$p" "$p" 2>/dev/null || true
-        mount -o remount,bind,ro "$p" 2>/dev/null || true
+        mount --bind "$p" "$p"
+        mount -o remount,bind,ro "$p"
     done
 
     # Re-protect all of /proc/sys, then punch /proc/sys/net back to read-write —
     # the sole surface netavark writes (net.ipv4.ip_forward, per-iface rp_filter…).
-    # Intentionally UNGUARDED (no `|| true`): these four mounts protect host-global
-    # kernel params, so under `set -euo pipefail` a failure must abort the entrypoint
-    # before dropping to devuser rather than boot a half-hardened container. Do not
-    # add `|| true` here — fail-closed is deliberate (unlike the best-effort loops above).
     mount --bind /proc/sys /proc/sys
     mount -o remount,bind,ro /proc/sys
     mount --bind /proc/sys/net /proc/sys/net
