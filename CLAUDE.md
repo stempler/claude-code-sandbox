@@ -51,7 +51,7 @@ proxy-log [all|denied|allowed|follow]
 | File | Role |
 |------|------|
 | `Dockerfile` | Ubuntu 26.04 base; installs Python, mise, gosu, iptables, Squid, Podman, Claude Code |
-| `entrypoint.sh` | Root startup: UID/GID remap → update CLIs → lock settings → init firewall → [DinD init] → drop to devuser |
+| `entrypoint.sh` | Root startup: UID/GID remap → update CLIs → lock settings → init firewall → [DinD init: `sandbox::reharden_proc_paths` runs first, then `sandbox::setup_rootless_podman`] → drop to devuser |
 | `init-firewall.sh` | Configures Squid + iptables (allows loopback, DNS, Anthropic CIDR; denies everything else for devuser) |
 | `lock-settings.sh` | Copies canonical config from image to `/home/devuser/.claude/`, makes all files root-owned read-only; preserves the user's `enabledPlugins` across the overwrite (so installed plugins stay enabled across restarts); overlays DinD tree and merges `settings.overrides.json` when `ENABLE_DOCKER=true` |
 | `bin/code-sandbox` | Host-side launcher: builds image, mounts cwd, passes HOST_UID/GID, reuses container per workspace |
@@ -85,9 +85,24 @@ Use `bin/code-sandbox --enable-docker` when the task needs Docker (testcontainer
 - Loads the DinD settings profile (unlocks `docker *` and `podman *` commands)
 - Adds container registry domains (docker.io, ghcr.io, gcr.io, quay.io) to the Squid allowlist
 - Increases the memory limit to 8 GB (PID limit stays at 512, same as the base profile)
+- Enables **bridge networking** for inner containers: `docker compose` stacks get
+  their own netavark network with aardvark-dns, so services resolve each other by
+  name. Standalone containers still default to host netns (keeping the
+  `localhost:3128` proxy path).
 
 **Security model unchanged:**
-- No `--privileged` on the outer container — only a targeted seccomp profile (`config/dind-seccomp.json`) that adds `unshare`/`mount`/`setns`
+- No `--privileged` on the outer container — only a targeted seccomp profile
+  (`config/dind-seccomp.json`) that adds `unshare`/`mount`/`setns`, plus
+  `--security-opt systempaths=unconfined` so rootless netavark can write the
+  `net.*` sysctls a bridge needs. `systempaths=unconfined` strips all of Docker's
+  default `/proc` protections, so `entrypoint.sh` (via
+  `sandbox::reharden_proc_paths`) immediately re-applies runc's default masks and
+  read-only paths and re-opens **only** `/proc/sys/net`. Residual exposure:
+  `/proc/sys/net` writable by root and the re-masks not being kernel-locked — both
+  scoped to `--enable-docker` and covered by `test-sandbox.sh`.
+- Bridged inner containers have **no external egress**: their masqueraded traffic
+  exits as `devuser` and hits the same iptables REJECT, so they can only talk to
+  each other, not the internet.
 - Inner containers use **user namespaces** (UID 100000–165535) — they cannot escape to host resources
 - Inner container traffic uses `pasta` networking (shares `devuser`'s network namespace), so all egress still exits as `devuser` UID → still blocked by iptables → must go through Squid → domain-filtered
 - No host Docker socket is mounted; inner containers use Podman's own runtime
