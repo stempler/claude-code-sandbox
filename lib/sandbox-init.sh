@@ -173,6 +173,10 @@ runtime = "crun"
 
 [network]
 network_backend = "netavark"
+# netavark 1.16 defaults its firewall driver to nftables, which shells out to
+# the `nft` binary this image does not ship. Use the iptables driver instead:
+# iptables is already installed and is the stack the egress firewall uses.
+firewall_driver = "iptables"
 CONF
     cat > "$CONTAINERS_CONF_DIR/storage.conf" <<'STOR'
 [storage]
