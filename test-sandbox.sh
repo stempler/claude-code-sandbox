@@ -682,27 +682,20 @@ else
     echo "TEST_DIND_NETWORK_CREATE=FAIL (podman network create failed — check netavark + /proc/sys/net writable)"
 fi
 
-# ── Inter-container name resolution + reachability on an explicit network ──
-# This is the design load-bearing check: it proves --network overrides the
-# netns=host default AND aardvark-dns resolves container names.
+# ── Inter-container name resolution on an explicit network ─────────────────
+# The design load-bearing check: proves --network overrides the netns=host
+# default (the container lands on its own netavark bridge) AND aardvark-dns
+# resolves peer container names. We assert on nslookup, not ping: busybox ping
+# needs CAP_NET_RAW, which the podman default capability set omits, so a ping
+# failure would not indicate a DNS/bridge problem. A successful busybox
+# nslookup prints a "Name: sbtest-svcb..." answer line; NXDOMAIN does not.
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman network create sbtest-dns" >/dev/null 2>&1 || true
 gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run -d --name sbtest-svcb --network sbtest-dns alpine sleep 60" >/dev/null 2>&1 || true
-# TEMP DIAGNOSTICS: pinpoint why bridged name resolution behaves as it does.
-# No single quotes here (whole block is single-quoted); each line guarded for set -e.
-echo "=== DNS DIAG ==="
-echo "svcb_ps:"
-gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman ps -a" 2>&1 || true
-echo "client_ip_addr:"
-gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine ip -o addr show" 2>&1 || true
-echo "client_resolv_conf:"
-gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine cat /etc/resolv.conf" 2>&1 || true
-echo "client_nslookup_svcb:"
-gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine nslookup sbtest-svcb" 2>&1 || true
-echo "=== END DNS DIAG ==="
-if gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine ping -c1 -W3 sbtest-svcb" 2>&1 | grep -q "1 packets received"; then
+DNS_OUT=$(gosu devuser bash -c "XDG_RUNTIME_DIR=$RUNTIME_DIR podman run --rm --network sbtest-dns alpine nslookup sbtest-svcb" 2>&1 || true)
+if echo "$DNS_OUT" | grep -qi "name:[[:space:]]*sbtest-svcb"; then
     echo "TEST_DIND_INTER_CONTAINER_DNS=PASS"
 else
-    echo "TEST_DIND_INTER_CONTAINER_DNS=FAIL (could not resolve/reach sbtest-svcb by name — bridge or aardvark-dns not working)"
+    echo "TEST_DIND_INTER_CONTAINER_DNS=FAIL (aardvark did not resolve sbtest-svcb; nslookup output: $DNS_OUT)"
 fi
 
 # ── Bridged container has NO external egress (masqueraded → devuser → REJECT) ──
