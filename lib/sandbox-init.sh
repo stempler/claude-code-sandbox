@@ -119,6 +119,10 @@ sandbox::reharden_proc_paths() {
 
     # Re-protect all of /proc/sys, then punch /proc/sys/net back to read-write —
     # the sole surface netavark writes (net.ipv4.ip_forward, per-iface rp_filter…).
+    # Intentionally UNGUARDED (no `|| true`): these four mounts protect host-global
+    # kernel params, so under `set -euo pipefail` a failure must abort the entrypoint
+    # before dropping to devuser rather than boot a half-hardened container. Do not
+    # add `|| true` here — fail-closed is deliberate (unlike the best-effort loops above).
     mount --bind /proc/sys /proc/sys
     mount -o remount,bind,ro /proc/sys
     mount --bind /proc/sys/net /proc/sys/net
